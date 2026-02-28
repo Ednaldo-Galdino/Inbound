@@ -46,6 +46,40 @@ const App: React.FC = () => {
       const sheetData = await fetchSheetData(id, "dash");
       setData(sheetData);
       setLastUpdated(new Date());
+
+      // Auto-detecta a data mais recente com dados na planilha
+      setSelectedDate(prev => {
+        const today = new Date();
+        // Verifica se já há dados para hoje
+        const colData = sheetData.headers.find(h =>
+          h.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').includes('DATA')
+        ) || '';
+        if (!colData) return prev;
+
+        const todayStr = `${today.getDate()}/${today.getMonth() + 1}`;
+        const hasToday = sheetData.rows.some(r => {
+          const v = String(r[colData] || '').trim();
+          return v.startsWith(todayStr) || v.startsWith(`${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}`);
+        });
+        if (hasToday) return today;
+
+        // Encontra a data mais recente na planilha
+        let latestDate: Date | null = null;
+        sheetData.rows.forEach(r => {
+          const v = String(r[colData] || '').trim();
+          const parts = v.split(/[\/\-]/);
+          if (parts.length >= 2) {
+            const d = parseInt(parts[0]);
+            const m = parseInt(parts[1]) - 1;
+            const y = parts.length >= 3 ? parseInt(parts[2]) : today.getFullYear();
+            const dt = new Date(y < 100 ? y + 2000 : y, m, d, 12);
+            if (!isNaN(dt.getTime()) && (!latestDate || dt > latestDate)) {
+              latestDate = dt;
+            }
+          }
+        });
+        return latestDate || prev;
+      });
     } catch (err: any) {
       setError("Erro ao carregar dados. Verifique se a planilha está pública.");
     } finally {
