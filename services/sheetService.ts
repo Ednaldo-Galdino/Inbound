@@ -35,7 +35,19 @@ const parseCSV = (csv: string): SheetData => {
     return line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(cell => cell.replace(/^"|"$/g, '').trim());
   };
 
-  const headers = splitLine(lines[0]);
+  // Handle duplicate headers by appending _2, _3 etc.
+  const rawHeaders = splitLine(lines[0]);
+  const headerCounts: Record<string, number> = {};
+  const headers = rawHeaders.map(h => {
+    if (!headerCounts[h]) {
+      headerCounts[h] = 1;
+      return h;
+    } else {
+      headerCounts[h]++;
+      return `${h}_${headerCounts[h]}`;
+    }
+  });
+
   const rows = lines.slice(1)
     .filter(line => line.trim() !== '')
     .map(line => {
@@ -44,15 +56,7 @@ const parseCSV = (csv: string): SheetData => {
       headers.forEach((header, index) => {
         const val = values[index] ?? "";
 
-        // Stricter number parsing:
-        // parseFloat("19/02/2025") returns 19, which corrupts the date.
-        // Number("19/02/2025") returns NaN, which is what we want (keep as string).
         const num = Number(val);
-
-        // We accept the value as a number only if:
-        // 1. It is not an empty string
-        // 2. It is a valid number (not NaN)
-        // 3. It doesn't look like a date/time string with common separators (to be extra safe against locale formats)
         const isDateLike = val.includes('/') || val.includes(':') || (val.includes('-') && val.split('-').length > 2);
 
         if (val !== "" && !isNaN(num) && !isDateLike) {
@@ -66,6 +70,7 @@ const parseCSV = (csv: string): SheetData => {
 
   return { headers, rows };
 };
+
 
 export const extractSheetId = (url: string): string | null => {
   const idMatch = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);

@@ -221,20 +221,20 @@ const App: React.FC = () => {
     // Filtragem por data selecionada usando a coluna detectada
     const rawFiltered = colData ? data.rows.filter(r => isMatchingDate(r[colData])) : data.rows;
 
-    const deduplicate = (rows: any[], primaryKey: string) => {
+    const deduplicate = (rows: any[], _primaryKey?: string) => {
       const seen = new Set();
       return rows.filter(r => {
-        const contagemVal = String(r[colContagem] || '').trim();
-        const chaveVal = String(r[colChave] || '').trim();
+        // "Contagem" é o ID principal da NF (ex: "227202642811" - 12 dígitos)
+        // Após o fix do CSV parser, r["Contagem"] = col 4 (ID longo), r["Contagem_2"] = col 8, r["Contagem_3"] = col 11
+        const contagemId = String(r[colContagem] || '').trim();
         const ordemVal = String(r[colOrdem] || '').trim();
-        const fornecVal = String(r[primaryKey] || '').trim();
+        const fornecVal = String(r[colProg] || '').trim();
         const statusVal = String(r[colStatus] || '').trim();
 
         let uniqueKey;
-        if (contagemVal && contagemVal !== '-' && contagemVal !== '0') {
-          uniqueKey = `CONTAGEM-${contagemVal}`;
-        } else if (chaveVal && chaveVal !== '-' && chaveVal !== '0') {
-          uniqueKey = `CHAVE-${chaveVal}`;
+        // Usa o ID de Contagem longo (≥ 8 chars = ID real, não um count como "2")
+        if (contagemId && contagemId.length >= 8) {
+          uniqueKey = `ID-${contagemId}`;
         } else if (ordemVal && ordemVal !== '-' && ordemVal !== '0') {
           uniqueKey = `ORDEM-${fornecVal}-${ordemVal}-${statusVal}`.toUpperCase();
         } else {
