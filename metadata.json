@@ -1,0 +1,5 @@
+{
+  "name": "Inbound Tv 4.1",
+  "description": "A professional dashboard designed for TV displays that connects directly to Google Sheets, featuring AI-powered insights using Gemini.",
+  "requestFramePermissions": []
+}
