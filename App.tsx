@@ -24,8 +24,8 @@ const GiroTradeLogo: React.FC<{ isTVMode: boolean }> = ({ isTVMode }) => (
 const DEFAULT_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1kgo_BrjuyPp5zxOGaJJfucd6t9fdufE8KF2Po-aCkGk/edit?pli=1&gid=961088198#gid=961088198';
 
 const App: React.FC = () => {
-  const [sheetInput, setSheetInput] = useState(DEFAULT_SHEET_URL);
-  const [activeSheetId, setActiveSheetId] = useState<string | null>(null);
+  // Planilha fixada - carrega direto no dashboard
+  const [activeSheetId] = useState<string>(() => extractSheetId(DEFAULT_SHEET_URL) || '');
   const [data, setData] = useState<SheetData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -34,15 +34,6 @@ const App: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
-    const hash = window.location.hash.replace('#', '');
-    if (hash) {
-      setActiveSheetId(hash);
-    } else {
-      const defaultId = extractSheetId(DEFAULT_SHEET_URL);
-      if (defaultId) setActiveSheetId(defaultId);
-    }
-  }, []);
 
   const loadData = useCallback(async (id: string) => {
     setIsLoading(true);
@@ -321,20 +312,6 @@ const App: React.FC = () => {
     return new Intl.DateTimeFormat('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' }).format(date).toUpperCase().replace('.', '');
   };
 
-  if (!activeSheetId) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-6 bg-slate-950 text-slate-100">
-        <div className="max-w-xl w-full bg-slate-900 border border-slate-800 p-10 rounded-[2.5rem] shadow-2xl">
-          <h1 className="text-3xl font-black mb-6 text-center tracking-tight text-white">Dashboard TV Logística</h1>
-          <form onSubmit={(e) => { e.preventDefault(); const id = extractSheetId(sheetInput); if (id) setActiveSheetId(id); }} className="space-y-4">
-            <input type="text" value={sheetInput} onChange={(e) => setSheetInput(e.target.value)} placeholder="Link da sua Planilha Google" className="w-full px-5 py-4 bg-slate-800 border border-slate-700 rounded-2xl text-white outline-none focus:ring-2 focus:ring-emerald-500" />
-            <button className="w-full py-5 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-2xl uppercase tracking-widest text-sm transition-all shadow-lg shadow-emerald-900/20">Abrir Painel na TV</button>
-          </form>
-          {error && <p className="mt-4 text-rose-500 text-center font-bold text-sm bg-rose-500/10 p-3 rounded-xl border border-rose-500/20">{error}</p>}
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className={`${isTVMode ? 'h-screen overflow-hidden p-2' : 'min-h-screen p-4'} bg-slate-950 flex flex-col transition-all duration-500`}>
@@ -393,7 +370,7 @@ const App: React.FC = () => {
             <GiroTradeLogo isTVMode={false} />
           </div>
           <div className="flex gap-2 items-center">
-            <button onClick={() => navigator.clipboard.writeText(window.location.href).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000) })} className="bg-slate-900 text-slate-400 px-4 py-3 rounded-xl font-bold border border-slate-800 text-[10px] hover:bg-slate-800">{copied ? '✓' : '🔗'}</button>
+            <button onClick={() => navigator.clipboard.writeText(window.location.href).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000) })} title="Copiar link para compartilhar" className="bg-slate-900 text-slate-400 px-4 py-3 rounded-xl font-bold border border-slate-800 text-[10px] hover:bg-slate-800">{copied ? '✓ COPIADO' : '🔗 LINK'}</button>
             <button onClick={() => setIsTVMode(!isTVMode)} className="bg-slate-900 text-emerald-400 px-4 py-3 rounded-xl font-bold text-[10px] border border-slate-800 hover:bg-slate-800 uppercase tracking-wider">{isTVMode ? 'SAIR TV' : 'MODO TV'}</button>
           </div>
         </div>
