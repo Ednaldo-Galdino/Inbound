@@ -1,51 +1,76 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
-import { SheetData, AIInsight } from "../types";
+import { GoogleGenAI } from "@google/genai";
+import { SheetData } from "../types";
 
-export const getAIInsights = async (data: SheetData): Promise<AIInsight[]> => {
-  if (!data || data.rows.length === 0) return [];
+export interface AIFilter {
+  supplierFilter: string | null;   // nome do fornecedor para filtrar, ou null
+  statusFilter: string | null;     // "aguardando" | "em_operacao" | "finalizado" | null
+  dateFilter: string | null;       // data no formato DD/MM ou null
+  message: string;                 // mensagem amigável para exibir ao usuário
+  clearAll: boolean;               // true se o usuário pediu para limpar filtros
+}
+
+export const processAICommand = async (
+  command: string,
+  data: SheetData
+): Promise<AIFilter> => {
+  const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY;
+
+  if (!apiKey) {
+    return {
+      supplierFilter: null,
+      statusFilter: null,
+      dateFilter: null,
+      message: '⚠️ Chave da API Gemini não configurada.',
+      clearAll: false,
+    };
+  }
 
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    
-    const dataSummary = {
-      totalRows: data.rows.length,
-      headers: data.headers,
-      sampleRows: data.rows.slice(0, 30) // Amostra para análise
-    };
+    const ai = new GoogleGenAI({ apiKey });
 
-    const prompt = `Analise estes dados de logística de carga/descarga. 
-    Identifique 3 insights críticos sobre: 
-    1. Eficiência das docas. 
-    2. Alertas de possíveis atrasos baseados no status.
-    3. Padrão de volumes.
-    Seja extremamente conciso e profissional.`;
+    // Extrai fornecedores únicos para contextualizar o Gemini
+    const fornecedores = [...new Set(data.rows.map(r => r['FORNECEDOR'] || r['FORNECEDOR PROGRAMADO'] || '').filter(Boolean))].slice(0, 30);
+
+    const prompt = `Você é um assistente de dashboard logístico. O usuário digitou um comando em português.
+
+Fornecedores disponíveis na planilha: ${fornecedores.join(', ')}
+
+Comando do usuário: "${command}"
+
+Retorne um JSON com os filtros a aplicar:
+{
+  "supplierFilter": "NOME_EXATO_DO_FORNECEDOR_OU_NULL",
+  "statusFilter": "aguardando" | "em_operacao" | "finalizado" | null,
+  "dateFilter": "DD/MM" | null,
+  "message": "mensagem curta confirmando o que foi feito",
+  "clearAll": true | false
+}
+
+Regras:
+- "supplierFilter": nome parcial ou completo do fornecedor mencionado. Null se não mencionou.
+- "statusFilter": "aguardando" se falou de aguardando/pátio/trânsito. "em_operacao" se falou de em operação/doca. "finalizado" se falou de finalizado/concluído.
+- "dateFilter": se mencionou uma data específica, extraia como DD/MM. Null se não mencionou.
+- "clearAll": true SOMENTE se o usuário claramente pediu para limpar/resetar/mostrar tudo.
+- "message": curta, em português, confirma o filtro aplicado.
+Retorne SOMENTE o JSON, sem explicações extras.`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-2.0-flash",
       contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              title: { type: Type.STRING },
-              value: { type: Type.STRING },
-              description: { type: Type.STRING },
-              trend: { type: Type.STRING, enum: ["up", "down", "neutral"] }
-            },
-            required: ["title", "value", "description", "trend"]
-          }
-        }
-      }
     });
 
-    const jsonStr = response.text;
-    return jsonStr ? JSON.parse(jsonStr) : [];
+    const text = response.text?.trim() || '';
+    const jsonStr = text.replace(/```json|```/g, '').trim();
+    return JSON.parse(jsonStr);
   } catch (error) {
     console.error("Gemini AI Error:", error);
-    return [];
+    return {
+      supplierFilter: null,
+      statusFilter: null,
+      dateFilter: null,
+      message: '❌ Não entendi o comando. Tente: "mostrar GRUPO JAV" ou "só em operação".',
+      clearAll: false,
+    };
   }
 };

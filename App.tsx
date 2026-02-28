@@ -34,6 +34,10 @@ const App: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [copied, setCopied] = useState(false);
 
+  // Ordens recebidas via Forms (aba bastime)
+  const [bastimeOrdens, setBastimeOrdens] = useState<Set<string>>(new Set());
+
+  const sheetId = activeSheetId.split('?')[0];
 
   const loadData = useCallback(async (id: string) => {
     setIsLoading(true);
@@ -42,21 +46,41 @@ const App: React.FC = () => {
       const sheetData = await fetchSheetData(id, "dash");
       setData(sheetData);
       setLastUpdated(new Date());
-      window.location.hash = id;
     } catch (err: any) {
-      setError("Erro ao carregar dados. Verifique se a aba chama-se 'dash' e se a planilha está pública.");
+      setError("Erro ao carregar dados. Verifique se a planilha está pública.");
     } finally {
       setIsLoading(false);
     }
   }, []);
 
+  // Lê a aba bastime para pegar ordens enviadas pelo Forms
+  const loadBastime = useCallback(async () => {
+    try {
+      const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=bastime&_t=${Date.now()}`;
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) return;
+      const csv = await res.text();
+      const lines = csv.split(/\r?\n/).filter(l => l.trim());
+      const ordens = new Set<string>();
+      lines.slice(1).forEach(line => {
+        // Formato: "carimbo","NUMERO_DA_ORDEM"
+        const parts = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+        const ordem = parts[1]?.replace(/^"|"$/g, '').trim();
+        if (ordem) ordens.add(ordem.toUpperCase());
+      });
+      setBastimeOrdens(ordens);
+    } catch { }
+  }, [sheetId]);
+
   useEffect(() => {
     if (activeSheetId) {
       loadData(activeSheetId);
-      const interval = setInterval(() => loadData(activeSheetId), 30000);
-      return () => clearInterval(interval);
+      loadBastime();
+      const dataInterval = setInterval(() => loadData(activeSheetId), 30000);
+      const bastimeInterval = setInterval(loadBastime, 15000);
+      return () => { clearInterval(dataInterval); clearInterval(bastimeInterval); };
     }
-  }, [activeSheetId, loadData]);
+  }, [activeSheetId, loadData, loadBastime]);
 
   const truncate = (str: any, n: number = 15) => {
     const s = String(str ?? '');
@@ -71,11 +95,16 @@ const App: React.FC = () => {
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.value) {
-      // Create date at noon to avoid timezone rolling issues on string parsing
       const parts = e.target.value.split('-');
       const newDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]), 12, 0, 0);
       setSelectedDate(newDate);
     }
+  };
+
+  const isOrdemDestacada = (row: any) => {
+    if (bastimeOrdens.size === 0) return false;
+    const ordem = String(row['ORDEM'] || row['Ordem'] || '').trim().toUpperCase();
+    return bastimeOrdens.has(ordem);
   };
 
   const blocks = useMemo(() => {
@@ -214,6 +243,7 @@ const App: React.FC = () => {
     const emOperacao = deduplicate(emOperacaoRaw, colDocaFornec);
     const finalizadas = deduplicate(finalizadasRaw, colDocaFornec);
     const noShows = deduplicate(noShowsRaw, colProg);
+
 
     const finalizadasCIF = finalizadas.filter(r => String(r[colTipo] ?? '').toUpperCase().includes('CIF'));
     const finalizadasFOB = finalizadas.filter(r => String(r[colTipo] ?? '').toUpperCase().includes('FOB'));
@@ -393,15 +423,19 @@ const App: React.FC = () => {
           <div className="p-2 overflow-y-auto flex-grow custom-scrollbar">
             <table className="w-full text-left table-auto">
               <tbody className="text-white">
-                {blocks?.programado.map((row, i) => (
-                  <tr key={i} className="border-b border-slate-800/40 last:border-0 hover:bg-white/5 transition-colors">
-                    <td className="py-1 px-3">
-                      <div className={`font-bold text-blue-300 leading-tight truncate ${isTVMode ? 'text-[12px]' : 'text-[10px]'}`}>
-                        {truncate(row[blocks.cols.colProg], 30)}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {blocks?.programado.map((row, i) => {
+                  const destaque = isOrdemDestacada(row);
+                  return (
+                    <tr key={i} className={`border-b border-slate-800/40 last:border-0 transition-colors ${destaque ? 'bg-yellow-500/15 border-yellow-500/30' : 'hover:bg-white/5'}`}>
+                      <td className="py-1 px-3">
+                        <div className={`font-bold leading-tight truncate ${destaque ? 'text-yellow-300' : 'text-blue-300'} ${isTVMode ? 'text-[12px]' : 'text-[10px]'}`}>
+                          {truncate(row[blocks.cols.colProg], 30)}
+                        </div>
+                        {destaque && <div className="text-[8px] text-yellow-500 font-black tracking-widest">⚡ ORDEM {row['ORDEM'] || row['Ordem']}</div>}
+                      </td>
+                    </tr>
+                  );
+                })}
                 {blocks?.programado.length === 0 && (
                   <tr><td className="py-10 text-center text-slate-600 uppercase font-black text-[11px] tracking-widest">Lista vazia</td></tr>
                 )}
@@ -426,28 +460,34 @@ const App: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="text-white">
-                {blocks?.emOperacao.map((row, i) => (
-                  <tr key={i} className="border-b border-slate-800/50 last:border-0">
-                    <td className="py-1.5 pl-2">
-                      <div className={`font-black uppercase truncate text-white leading-tight ${isTVMode ? 'text-[12px]' : 'text-[10px]'}`}>
-                        {truncate(row[blocks.cols.colDocaFornec], 25)}
-                      </div>
-                      <div className="text-slate-500 text-[8px] font-bold mt-0.5">ORDEM: {String(row[blocks.cols.colOrdem] ?? '-')}</div>
-                    </td>
-                    <td className="py-1.5 text-center">
-                      <div className={`font-black text-amber-400 leading-none ${isTVMode ? 'text-[32px]' : 'text-[24px]'}`}>
-                        {row[blocks.cols.colDocaNum] || '-'}
-                      </div>
-                    </td>
-                    <td className="py-1.5 text-center">
-                      <div className="flex justify-center w-full px-1">
-                        <span className={`w-full max-w-[120px] px-1 py-0.5 rounded border font-black uppercase tracking-tight whitespace-nowrap overflow-hidden text-ellipsis ${getStatusStyle(row[blocks.cols.colStatus])} ${isTVMode ? 'text-[9px]' : 'text-[8px]'}`}>
-                          {row[blocks.cols.colStatus] || 'DOCA'}
-                        </span>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {blocks?.emOperacao.map((row, i) => {
+                  const destaque = isOrdemDestacada(row);
+                  return (
+                    <tr key={i} className={`border-b border-slate-800/50 last:border-0 ${destaque ? 'bg-yellow-500/15 border-yellow-500/30' : ''}`}>
+                      <td className="py-1.5 pl-2">
+                        <div className={`font-black uppercase truncate leading-tight ${destaque ? 'text-yellow-300' : 'text-white'} ${isTVMode ? 'text-[12px]' : 'text-[10px]'}`}>
+                          {truncate(row[blocks.cols.colDocaFornec], 25)}
+                        </div>
+                        <div className="text-slate-500 text-[8px] font-bold mt-0.5">
+                          ORDEM: {String(row[blocks.cols.colOrdem] ?? '-')}
+                          {destaque && <span className="text-yellow-500 ml-1 font-black">⚡</span>}
+                        </div>
+                      </td>
+                      <td className="py-1.5 text-center">
+                        <div className={`font-black text-amber-400 leading-none ${isTVMode ? 'text-[32px]' : 'text-[24px]'}`}>
+                          {row[blocks.cols.colDocaNum] || '-'}
+                        </div>
+                      </td>
+                      <td className="py-1.5 text-center">
+                        <div className="flex justify-center w-full px-1">
+                          <span className={`w-full max-w-[120px] px-1 py-0.5 rounded border font-black uppercase tracking-tight whitespace-nowrap overflow-hidden text-ellipsis ${getStatusStyle(row[blocks.cols.colStatus])} ${isTVMode ? 'text-[9px]' : 'text-[8px]'}`}>
+                            {row[blocks.cols.colStatus] || 'DOCA'}
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
                 {blocks?.emOperacao.length === 0 && (
                   <tr><td colSpan={3} className="py-10 text-center text-slate-600 uppercase font-black text-[11px] tracking-widest">Nenhuma carga em doca</td></tr>
                 )}
@@ -504,6 +544,21 @@ const App: React.FC = () => {
       {isLoading && (
         <div className="fixed bottom-20 right-6 bg-emerald-600 text-white px-6 py-3 rounded-full shadow-2xl animate-pulse z-50 font-black text-[11px] tracking-[0.2em] border border-emerald-400">
           SINCRONIZANDO...
+        </div>
+      )}
+
+      {/* Indicador de ordens em destaque (bastime) */}
+      {!isTVMode && bastimeOrdens.size > 0 && (
+        <div className="mt-3 px-2">
+          <div className="flex items-center gap-2 bg-yellow-500/10 border border-yellow-500/30 rounded-xl px-4 py-2">
+            <span className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse"></span>
+            <span className="text-yellow-400 font-black text-[11px] uppercase tracking-wider">
+              {bastimeOrdens.size} ordem{bastimeOrdens.size > 1 ? 's' : ''} em destaque via Forms
+            </span>
+            <span className="text-yellow-600 text-[10px] ml-2">
+              [{[...bastimeOrdens].join(', ')}]
+            </span>
+          </div>
         </div>
       )}
     </div>
