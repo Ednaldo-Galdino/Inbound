@@ -158,20 +158,20 @@ const App: React.FC = () => {
 
     // Identificação de colunas - usando nomes reais da planilha
     const colData = findH('DATA') || findH('DATA DA CARGA') || findH('DATA AGENDAMENTO') || '';
-    // Coluna do fornecedor programado: na planilha é 'FORNECEDOR'
+    // FORNECEDOR = nome do fornecedor (tanto para aguardando quanto em doca)
     const colProg = findH('FORNECEDOR PROGRAMADO') || findH('FORNECEDOR');
-    // Coluna do fornecedor em doca: na planilha é 'Chegada em doca'
-    const colDocaFornec = findH('FORNECEDOR EM DOCA') || findH('CHEGADA EM DOCA') || findH('CHEGADA');
+    // Chegada em doca = timestamp que indica que o veiculo está em doca
+    const colChegadaDoca = findH('CHEGADA EM DOCA') || findH('CHEGADA');
     const colOrdem = findH('ORDEM');
     const colDocaNum = findH('DOCA');
     const colStatus = findH('STATUS') || findH('STATUS GERAL');
     const colTempoTotal = findH('TEMPO TOTAL') || findH('TEMPO');
     const colTipo = findH('TIPO') || findH('FRETE') || findH('CIF/FOB');
     const colChave = findH('CHAVE AGENDAMENTO') || findH('CHAVE');
-    // Contagem: na planilha é 'Contagem'
     const colContagem = findH('CONTAGEM') || findH('ID CARGA') || findH('ID');
-    // Hora de fim: na planilha é 'Fim Conferencia' ou 'Fim da Descarga'
     const colHoraFim = findH('FIM CONFERENCIA') || findH('FIM DA CONFERENCIA') || findH('HORA FINALIZACAO DA CONFERENCIA') || findH('HORA FIM') || findH('HORA FINALIZACAO') || findH('FIM DA DESCARGA') || findH('FIM');
+    // Mantém colDocaFornec como alias para compatibilidade com o resto do código
+    const colDocaFornec = colChegadaDoca;
 
     const fixedCols = [colData, colProg, colDocaFornec, colOrdem, colDocaNum, colStatus, colTempoTotal, colTipo, colChave, colContagem, colHoraFim].filter(Boolean);
     const extraCols = h.filter(col => !fixedCols.includes(col));
@@ -285,8 +285,9 @@ const App: React.FC = () => {
     const historicoUnificado: any[] = [];
     const agrupamento: Record<string, any> = {};
 
+    // Agrupamento usa sempre o nome do fornecedor (colProg)
     [...finalizadas, ...noShows].forEach(r => {
-      const fornecedor = r[colDocaFornec] || r[colProg] || 'DESCONHECIDO';
+      const fornecedor = r[colProg] || 'DESCONHECIDO';
       if (!agrupamento[fornecedor]) {
         agrupamento[fornecedor] = {
           nome: fornecedor,
@@ -500,7 +501,7 @@ const App: React.FC = () => {
                     <tr key={i} className={`border-b border-slate-800/50 last:border-0 ${destaque ? 'bg-yellow-500/15 border-yellow-500/30' : ''}`}>
                       <td className="py-1.5 pl-2">
                         <div className={`font-black uppercase truncate leading-tight ${destaque ? 'text-yellow-300' : 'text-white'} ${isTVMode ? 'text-[12px]' : 'text-[10px]'}`}>
-                          {truncate(row[blocks.cols.colDocaFornec], 25)}
+                          {truncate(row[blocks.cols.colProg], 25)}
                         </div>
                         <div className="text-slate-500 text-[8px] font-bold mt-0.5">
                           ORDEM: {String(row[blocks.cols.colOrdem] ?? '-')}
