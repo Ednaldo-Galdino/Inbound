@@ -1,14 +1,18 @@
 
 import { SheetData } from "../types";
 
-export const fetchSheetData = async (sheetId: string, sheetName: string = "dash"): Promise<SheetData> => {
-  // Use the gviz API to get CSV data from a specific tab by name
-  const encodedSheetName = encodeURIComponent(sheetName);
-  const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodedSheetName}`;
+export const fetchSheetData = async (sheetKey: string, sheetName: string = "dash"): Promise<SheetData> => {
+  // sheetKey may be "SHEET_ID" or "SHEET_ID?gid=XXXXXX"
+  const [sheetId, gidParam] = sheetKey.split('?');
+  const gid = gidParam ? gidParam.replace('gid=', '') : null;
+
+  // Build URL: prefer gid if available, else use sheet name
+  const baseUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv`;
+  const url = gid ? `${baseUrl}&gid=${gid}` : `${baseUrl}&sheet=${encodeURIComponent(sheetName)}`;
   
   const response = await fetch(url);
   if (!response.ok) {
-    // If specific sheet fails, fallback to default first sheet
+    // Fallback to default first sheet
     const fallbackUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv`;
     const fallbackResponse = await fetch(fallbackUrl);
     if (!fallbackResponse.ok) throw new Error("Falha ao acessar planilha. Verifique se está compartilhada como 'Qualquer pessoa com o link'.");
@@ -61,6 +65,11 @@ const parseCSV = (csv: string): SheetData => {
 };
 
 export const extractSheetId = (url: string): string | null => {
-  const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-  return match ? match[1] : url;
+  const idMatch = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  if (!idMatch) return url;
+  const sheetId = idMatch[1];
+  // Also extract gid if present (e.g. ?gid=961088198 or #gid=961088198)
+  const gidMatch = url.match(/[?&#]gid=([0-9]+)/);
+  if (gidMatch) return `${sheetId}?gid=${gidMatch[1]}`;
+  return sheetId;
 };

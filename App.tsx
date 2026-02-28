@@ -7,21 +7,21 @@ import MetricCard from './components/MetricCard';
 const GiroTradeLogo: React.FC<{ isTVMode: boolean }> = ({ isTVMode }) => (
   <div className={`flex items-center gap-2 ${isTVMode ? 'scale-125 origin-bottom-right' : ''}`}>
     <div className="w-14 h-14 flex-shrink-0">
-       <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-          {/* Top Arc (White) - Shifted Left */}
-          <path d="M 12 46 A 24 24 0 0 1 60 46" stroke="#ffffff" strokeWidth="18" strokeLinecap="round" />
-          {/* Bottom Arc (Green) - Shifted Right */}
-          <path d="M 40 54 A 24 24 0 0 0 88 54" stroke="#22c55e" strokeWidth="18" strokeLinecap="round" />
-       </svg>
+      <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+        {/* Top Arc (White) - Shifted Left */}
+        <path d="M 12 46 A 24 24 0 0 1 60 46" stroke="#ffffff" strokeWidth="18" strokeLinecap="round" />
+        {/* Bottom Arc (Green) - Shifted Right */}
+        <path d="M 40 54 A 24 24 0 0 0 88 54" stroke="#22c55e" strokeWidth="18" strokeLinecap="round" />
+      </svg>
     </div>
     <div className="flex flex-col justify-center items-start leading-[0.7] -mt-1">
-       <span className="text-white font-bold text-4xl tracking-tighter">giro</span>
-       <span className="text-white font-bold text-4xl tracking-tighter ml-[1.15rem]">trade</span>
+      <span className="text-white font-bold text-4xl tracking-tighter">giro</span>
+      <span className="text-white font-bold text-4xl tracking-tighter ml-[1.15rem]">trade</span>
     </div>
   </div>
 );
 
-const DEFAULT_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1kgo_BrjuyPp5zxOGaJJfucd6t9fdufE8KF2Po-aCkGk/edit?gid=274920254#gid=274920254';
+const DEFAULT_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1kgo_BrjuyPp5zxOGaJJfucd6t9fdufE8KF2Po-aCkGk/edit?pli=1&gid=961088198#gid=961088198';
 
 const App: React.FC = () => {
   const [sheetInput, setSheetInput] = useState(DEFAULT_SHEET_URL);
@@ -90,9 +90,9 @@ const App: React.FC = () => {
   const blocks = useMemo(() => {
     if (!data) return null;
     const h = data.headers;
-    
+
     const normalize = (str: string) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().trim();
-    
+
     const findH = (name: string) => {
       const search = normalize(name);
       // Prioritize exact match first
@@ -101,19 +101,23 @@ const App: React.FC = () => {
       // Fallback to contains
       return h.find(col => normalize(col).includes(search)) || '';
     };
-    
-    // Identificação de colunas - Priorizando 'DATA'
+
+    // Identificação de colunas - usando nomes reais da planilha
     const colData = findH('DATA') || findH('DATA DA CARGA') || findH('DATA AGENDAMENTO') || '';
-    const colProg = findH('FORNECEDOR PROGRAMADO');
-    const colDocaFornec = findH('FORNECEDOR EM DOCA');
+    // Coluna do fornecedor programado: na planilha é 'FORNECEDOR'
+    const colProg = findH('FORNECEDOR PROGRAMADO') || findH('FORNECEDOR');
+    // Coluna do fornecedor em doca: na planilha é 'Chegada em doca'
+    const colDocaFornec = findH('FORNECEDOR EM DOCA') || findH('CHEGADA EM DOCA') || findH('CHEGADA');
     const colOrdem = findH('ORDEM');
     const colDocaNum = findH('DOCA');
-    const colStatus = findH('STATUS');
-    const colTempoTotal = findH('TEMPO TOTAL');
+    const colStatus = findH('STATUS') || findH('STATUS GERAL');
+    const colTempoTotal = findH('TEMPO TOTAL') || findH('TEMPO');
     const colTipo = findH('TIPO') || findH('FRETE') || findH('CIF/FOB');
-    const colChave = findH('CHAVE AGENDAMENTO');
+    const colChave = findH('CHAVE AGENDAMENTO') || findH('CHAVE');
+    // Contagem: na planilha é 'Contagem'
     const colContagem = findH('CONTAGEM') || findH('ID CARGA') || findH('ID');
-    const colHoraFim = findH('HORA FINALIZACAO DA CONFERENCIA') || findH('HORA FIM') || findH('FIM CONFERENCIA') || findH('FIM DA CONFERENCIA') || findH('HORA FINALIZACAO') || findH('HORA') || findH('FIM');
+    // Hora de fim: na planilha é 'Fim Conferencia' ou 'Fim da Descarga'
+    const colHoraFim = findH('FIM CONFERENCIA') || findH('FIM DA CONFERENCIA') || findH('HORA FINALIZACAO DA CONFERENCIA') || findH('HORA FIM') || findH('HORA FINALIZACAO') || findH('FIM DA DESCARGA') || findH('FIM');
 
     const fixedCols = [colData, colProg, colDocaFornec, colOrdem, colDocaNum, colStatus, colTempoTotal, colTipo, colChave, colContagem, colHoraFim].filter(Boolean);
     const extraCols = h.filter(col => !fixedCols.includes(col));
@@ -121,25 +125,25 @@ const App: React.FC = () => {
     const isMatchingDate = (val: any) => {
       if (!val || val === '-' || val === 0) return false;
       const valStr = String(val).trim();
-      
+
       const tD = selectedDate.getDate();
       const tM = selectedDate.getMonth() + 1;
       const tY = selectedDate.getFullYear();
 
       // Divide por /, -, espaço ou T (formato ISO)
       const parts = valStr.split(/[\/\-\sT]/).filter(p => p.length > 0);
-      
+
       // Allow dates with only 2 parts (DD/MM) by assuming current year, or full dates
       if (parts.length < 2) return false;
 
       let d, m, y;
-      
+
       if (parts.length === 2) {
-          // Format DD/MM or MM/DD - assume DD/MM as default for Brazil
-          // Assume current year
-          d = parseInt(parts[0]);
-          m = parseInt(parts[1]);
-          y = tY; // Use selected date year (usually current)
+        // Format DD/MM or MM/DD - assume DD/MM as default for Brazil
+        // Assume current year
+        d = parseInt(parts[0]);
+        m = parseInt(parts[1]);
+        y = tY; // Use selected date year (usually current)
       } else if (parts[0].length === 4) { // Formato YYYY-MM-DD
         y = parseInt(parts[0]);
         m = parseInt(parts[1]);
@@ -162,7 +166,7 @@ const App: React.FC = () => {
 
     // Filtragem por data selecionada usando a coluna detectada
     const rawFiltered = colData ? data.rows.filter(r => isMatchingDate(r[colData])) : data.rows;
-    
+
     const deduplicate = (rows: any[], primaryKey: string) => {
       const seen = new Set();
       return rows.filter(r => {
@@ -171,16 +175,16 @@ const App: React.FC = () => {
         const ordemVal = String(r[colOrdem] || '').trim();
         const fornecVal = String(r[primaryKey] || '').trim();
         const statusVal = String(r[colStatus] || '').trim();
-        
+
         let uniqueKey;
         if (contagemVal && contagemVal !== '-' && contagemVal !== '0') {
-           uniqueKey = `CONTAGEM-${contagemVal}`;
+          uniqueKey = `CONTAGEM-${contagemVal}`;
         } else if (chaveVal && chaveVal !== '-' && chaveVal !== '0') {
-           uniqueKey = `CHAVE-${chaveVal}`;
+          uniqueKey = `CHAVE-${chaveVal}`;
         } else if (ordemVal && ordemVal !== '-' && ordemVal !== '0') {
-           uniqueKey = `ORDEM-${fornecVal}-${ordemVal}-${statusVal}`.toUpperCase();
+          uniqueKey = `ORDEM-${fornecVal}-${ordemVal}-${statusVal}`.toUpperCase();
         } else {
-           uniqueKey = JSON.stringify(r);
+          uniqueKey = JSON.stringify(r);
         }
 
         if (seen.has(uniqueKey)) return false;
@@ -194,16 +198,24 @@ const App: React.FC = () => {
 
     const isFinished = (status: any) => {
       const s = String(status ?? '').toUpperCase();
-      return s.includes('FINALIZADO') || s.includes('CONCLUÍDO') || s.includes('CONFERÊNCIA FINALIZADA') || s.includes('OK') || s.includes('FINALIZADA');
+      return s.includes('FINALIZADO') || s.includes('CONCLUÍDO') || s.includes('CONFERENCIA FINALIZADA') || s.includes('CONFERÊNCIA FINALIZADA') || s.includes('OK') || s.includes('FINALIZADA');
     };
 
     const isNoShow = (status: any) => {
       const s = String(status ?? '').toUpperCase();
-      return s.includes('NOSHOW') || s.includes('NO SHOW') || s.includes('FALTOU');
+      return s.includes('NOSHOW') || s.includes('NO SHOW') || s.includes('FALTOU') || s.includes('AUSENTE');
     };
 
-    const programadoRaw = rawFiltered.filter(r => r[colProg] && !r[colDocaFornec] && !isFinished(r[colStatus]) && !isNoShow(r[colStatus]));
-    const emOperacaoRaw = rawFiltered.filter(r => r[colDocaFornec] && !isFinished(r[colStatus]) && !isNoShow(r[colStatus]));
+    const isInTransit = (status: any) => {
+      const s = String(status ?? '').toUpperCase();
+      return s.includes('TRANSITO') || s.includes('TRÂNSITO') || s.includes('AGUARDANDO') || s.includes('AGUARDANDO VEICULO') || s.includes('AGUARDANDO VEÍCULO');
+    };
+
+    // Aguardando: fornecedor programado, ainda não chegou na doca, não finalizado
+    // Na planilha: 'Chegada em doca' vazia OU status = Em trânsito / AGUARDANDO VEÍCULO
+    const programadoRaw = rawFiltered.filter(r => r[colProg] && !isFinished(r[colStatus]) && !isNoShow(r[colStatus]) && (!r[colDocaFornec] || isInTransit(r[colStatus])));
+    // Em operação: chegada em doca preenchida, ainda não finalizado
+    const emOperacaoRaw = rawFiltered.filter(r => r[colDocaFornec] && !isFinished(r[colStatus]) && !isNoShow(r[colStatus]) && !isInTransit(r[colStatus]));
     const finalizadasRaw = rawFiltered.filter(r => isFinished(r[colStatus]));
     const noShowsRaw = rawFiltered.filter(r => isNoShow(r[colStatus]));
 
@@ -211,7 +223,7 @@ const App: React.FC = () => {
     const emOperacao = deduplicate(emOperacaoRaw, colDocaFornec);
     const finalizadas = deduplicate(finalizadasRaw, colDocaFornec);
     const noShows = deduplicate(noShowsRaw, colProg);
-    
+
     const finalizadasCIF = finalizadas.filter(r => String(r[colTipo] ?? '').toUpperCase().includes('CIF'));
     const finalizadasFOB = finalizadas.filter(r => String(r[colTipo] ?? '').toUpperCase().includes('FOB'));
 
@@ -230,7 +242,7 @@ const App: React.FC = () => {
           horaFim: '-'
         };
       }
-      
+
       if (isFinished(r[colStatus])) {
         agrupamento[fornecedor].finalizados++;
         const t = parseFloat(r[colTempoTotal]);
@@ -256,9 +268,9 @@ const App: React.FC = () => {
       historicoUnificado.push({ ...item, tempoMedio: avg });
     });
 
-    return { 
-      programado, 
-      emOperacao, 
+    return {
+      programado,
+      emOperacao,
       finalizadas,
       noShows,
       finalizadasCIF,
@@ -266,7 +278,7 @@ const App: React.FC = () => {
       historicoUnificado,
       totalDoDia,
       extraCols,
-      cols: { colProg, colDocaFornec, colOrdem, colDocaNum, colStatus, colTempoTotal, colTipo, colData, colHoraFim } 
+      cols: { colProg, colDocaFornec, colOrdem, colDocaNum, colStatus, colTempoTotal, colTipo, colData, colHoraFim }
     };
   }, [data, selectedDate]);
 
@@ -275,10 +287,10 @@ const App: React.FC = () => {
     return [
       { title: 'Aguardando', value: String(blocks.programado.length), description: 'Pátio / Trânsito', trend: 'neutral' },
       { title: 'Em Operação', value: String(blocks.emOperacao.length), description: 'Cargas em Doca', trend: 'neutral' },
-      { 
-        title: 'Finalizados', 
-        value: String(blocks.finalizadas.length + blocks.noShows.length), 
-        description: 'Total Saídas', 
+      {
+        title: 'Finalizados',
+        value: String(blocks.finalizadas.length + blocks.noShows.length),
+        description: 'Total Saídas',
         trend: 'neutral',
         details: [
           { label: 'NÃO (CIF)', value: String(blocks.finalizadasCIF.length) },
@@ -291,12 +303,13 @@ const App: React.FC = () => {
   }, [blocks]);
 
   // Unused function renderExtraInfo removed from here
-  
+
   const getStatusStyle = (status: any) => {
     const s = String(status ?? '').toUpperCase();
     if (s.includes('DESCARGA')) return 'border-amber-500/30 bg-amber-500/10 text-amber-400';
-    if (s.includes('AGUARDANDO')) return 'border-yellow-500/30 bg-yellow-500/10 text-yellow-400';
-    if (s.includes('CONFERENCIA') || s.includes('CONFERÊNCIA') || s.includes('CONFERINDO')) return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400';
+    if (s.includes('AGUARDANDO') || s.includes('TRANSITO') || s.includes('TRÂNSITO')) return 'border-yellow-500/30 bg-yellow-500/10 text-yellow-400';
+    if (s.includes('CONFERENCIA') || s.includes('CONFERÊNCIA') || s.includes('CONFERINDO') || s.includes('FINALIZADA') || s.includes('FINALIZADO')) return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400';
+    if (s.includes('EM DOCA') || s.includes('DOCA')) return 'border-orange-500/30 bg-orange-500/10 text-orange-400';
     return 'border-slate-500/30 bg-slate-500/10 text-slate-400';
   };
 
@@ -331,56 +344,56 @@ const App: React.FC = () => {
           {/* Seletor de Data */}
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-2 bg-slate-900/80 p-1 rounded-xl border border-slate-800 shadow-lg">
-                <button onClick={() => changeDate(-1)} className="w-6 h-6 flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-white rounded-lg transition-colors">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
-                </button>
-                
-                <div className="relative group">
-                  <div className="flex items-center gap-2 px-2 cursor-pointer">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
-                    <span className={`font-black text-white uppercase tracking-wide ${isTVMode ? 'text-sm' : 'text-xs'}`}>
-                      {formatDateDisplay(selectedDate)}
-                    </span>
-                  </div>
-                  <input 
-                    type="date" 
-                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                    onChange={handleDateChange}
-                  />
-                </div>
+              <button onClick={() => changeDate(-1)} className="w-6 h-6 flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-white rounded-lg transition-colors">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
+              </button>
 
-                <button onClick={() => changeDate(1)} className="w-6 h-6 flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-white rounded-lg transition-colors">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>
-                </button>
+              <div className="relative group">
+                <div className="flex items-center gap-2 px-2 cursor-pointer">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                  <span className={`font-black text-white uppercase tracking-wide ${isTVMode ? 'text-sm' : 'text-xs'}`}>
+                    {formatDateDisplay(selectedDate)}
+                  </span>
+                </div>
+                <input
+                  type="date"
+                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                  onChange={handleDateChange}
+                />
+              </div>
+
+              <button onClick={() => changeDate(1)} className="w-6 h-6 flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-white rounded-lg transition-colors">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
+              </button>
             </div>
           </div>
 
           <div className="flex items-center gap-2 mt-2">
-             <div className="text-slate-400 font-bold uppercase text-[10px] flex items-center gap-2 bg-slate-900 px-3 py-1 rounded-lg border border-slate-800">
-                <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
-                ATUALIZADO: {lastUpdated?.toLocaleTimeString()}
-                {blocks && <span className="text-slate-600 ml-2 border-l border-slate-700 pl-2">FILTRO: {truncate(blocks.cols.colData || 'N/A', 10)}</span>}
-             </div>
+            <div className="text-slate-400 font-bold uppercase text-[10px] flex items-center gap-2 bg-slate-900 px-3 py-1 rounded-lg border border-slate-800">
+              <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
+              ATUALIZADO: {lastUpdated?.toLocaleTimeString()}
+              {blocks && <span className="text-slate-600 ml-2 border-l border-slate-700 pl-2">FILTRO: {truncate(blocks.cols.colData || 'N/A', 10)}</span>}
+            </div>
           </div>
         </div>
 
         {/* Centro: Título e Resumo Total */}
         <div className="flex-[2] flex flex-col items-center justify-center -ml-10">
-           <h1 className={`font-black text-white uppercase tracking-tighter mb-2 ${isTVMode ? 'text-4xl' : 'text-2xl'}`}>CONTROLE DE CARGAS</h1>
-           {/* Totalizador Geral */}
-           <div className="bg-emerald-600/20 border border-emerald-500/30 px-12 py-2 rounded-2xl flex items-center gap-5 shadow-[0_0_20px_rgba(16,185,129,0.15)]">
-              <span className="text-emerald-400 font-bold text-[12px] uppercase tracking-[0.25em]">TOTAL CARGAS</span>
-              <span className={`text-white font-black tracking-tighter leading-none ${isTVMode ? 'text-5xl' : 'text-4xl'}`}>{blocks?.totalDoDia || 0}</span>
-           </div>
+          <h1 className={`font-black text-white uppercase tracking-tighter mb-2 ${isTVMode ? 'text-4xl' : 'text-2xl'}`}>CONTROLE DE CARGAS</h1>
+          {/* Totalizador Geral */}
+          <div className="bg-emerald-600/20 border border-emerald-500/30 px-12 py-2 rounded-2xl flex items-center gap-5 shadow-[0_0_20px_rgba(16,185,129,0.15)]">
+            <span className="text-emerald-400 font-bold text-[12px] uppercase tracking-[0.25em]">TOTAL CARGAS</span>
+            <span className={`text-white font-black tracking-tighter leading-none ${isTVMode ? 'text-5xl' : 'text-4xl'}`}>{blocks?.totalDoDia || 0}</span>
+          </div>
         </div>
 
         {/* Lado Direito: Controles */}
         <div className="flex-1 flex flex-col items-end justify-center gap-2">
           <div className={`transform ${isTVMode ? 'scale-75' : 'scale-50'} origin-right`}>
-             <GiroTradeLogo isTVMode={false} />
+            <GiroTradeLogo isTVMode={false} />
           </div>
           <div className="flex gap-2 items-center">
-            <button onClick={() => navigator.clipboard.writeText(window.location.href).then(() => {setCopied(true); setTimeout(() => setCopied(false), 2000)})} className="bg-slate-900 text-slate-400 px-4 py-3 rounded-xl font-bold border border-slate-800 text-[10px] hover:bg-slate-800">{copied ? '✓' : '🔗'}</button>
+            <button onClick={() => navigator.clipboard.writeText(window.location.href).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000) })} className="bg-slate-900 text-slate-400 px-4 py-3 rounded-xl font-bold border border-slate-800 text-[10px] hover:bg-slate-800">{copied ? '✓' : '🔗'}</button>
             <button onClick={() => setIsTVMode(!isTVMode)} className="bg-slate-900 text-emerald-400 px-4 py-3 rounded-xl font-bold text-[10px] border border-slate-800 hover:bg-slate-800 uppercase tracking-wider">{isTVMode ? 'SAIR TV' : 'MODO TV'}</button>
           </div>
         </div>
@@ -413,7 +426,7 @@ const App: React.FC = () => {
                   </tr>
                 ))}
                 {blocks?.programado.length === 0 && (
-                   <tr><td className="py-10 text-center text-slate-600 uppercase font-black text-[11px] tracking-widest">Lista vazia</td></tr>
+                  <tr><td className="py-10 text-center text-slate-600 uppercase font-black text-[11px] tracking-widest">Lista vazia</td></tr>
                 )}
               </tbody>
             </table>
@@ -451,15 +464,15 @@ const App: React.FC = () => {
                     </td>
                     <td className="py-1.5 text-center">
                       <div className="flex justify-center w-full px-1">
-                          <span className={`w-full max-w-[120px] px-1 py-0.5 rounded border font-black uppercase tracking-tight whitespace-nowrap overflow-hidden text-ellipsis ${getStatusStyle(row[blocks.cols.colStatus])} ${isTVMode ? 'text-[9px]' : 'text-[8px]'}`}>
-                            {row[blocks.cols.colStatus] || 'DOCA'}
-                          </span>
+                        <span className={`w-full max-w-[120px] px-1 py-0.5 rounded border font-black uppercase tracking-tight whitespace-nowrap overflow-hidden text-ellipsis ${getStatusStyle(row[blocks.cols.colStatus])} ${isTVMode ? 'text-[9px]' : 'text-[8px]'}`}>
+                          {row[blocks.cols.colStatus] || 'DOCA'}
+                        </span>
                       </div>
                     </td>
                   </tr>
                 ))}
                 {blocks?.emOperacao.length === 0 && (
-                   <tr><td colSpan={3} className="py-10 text-center text-slate-600 uppercase font-black text-[11px] tracking-widest">Nenhuma carga em doca</td></tr>
+                  <tr><td colSpan={3} className="py-10 text-center text-slate-600 uppercase font-black text-[11px] tracking-widest">Nenhuma carga em doca</td></tr>
                 )}
               </tbody>
             </table>
@@ -473,47 +486,47 @@ const App: React.FC = () => {
             <span className="bg-slate-700 text-slate-300 text-[9px] font-bold px-1.5 py-0.5 rounded-md">{blocks?.finalizadas.length + (blocks?.noShows.length || 0)}</span>
           </div>
           <div className="p-4 overflow-y-auto flex-grow custom-scrollbar">
-             <table className="w-full text-left table-fixed">
-                <thead className="text-slate-500 text-[8px] uppercase border-b border-slate-800 font-black">
-                  <tr>
-                    <th className="pb-1 w-[40%]">Fornecedor</th>
-                    <th className="pb-1 text-center w-[15%]">Tipo</th>
-                    <th className="pb-1 text-center w-[15%]">Saídas</th>
-                    <th className="pb-1 text-center w-[15%]">Hora</th>
-                    <th className="pb-1 text-center">Médio</th>
+            <table className="w-full text-left table-fixed">
+              <thead className="text-slate-500 text-[8px] uppercase border-b border-slate-800 font-black">
+                <tr>
+                  <th className="pb-1 w-[40%]">Fornecedor</th>
+                  <th className="pb-1 text-center w-[15%]">Tipo</th>
+                  <th className="pb-1 text-center w-[15%]">Saídas</th>
+                  <th className="pb-1 text-center w-[15%]">Hora</th>
+                  <th className="pb-1 text-center">Médio</th>
+                </tr>
+              </thead>
+              <tbody className="text-white">
+                {blocks?.historicoUnificado.map((item, i) => (
+                  <tr key={i} className="border-b border-slate-800/30 last:border-0">
+                    <td className={`py-1 font-bold truncate ${isTVMode ? 'text-[10px]' : 'text-[9px]'}`}>
+                      <div className="flex flex-col">
+                        <span className="truncate">{truncate(item.nome, 25)}</span>
+                        {item.noshows > 0 && <span className="text-[7px] text-rose-500 font-black tracking-tighter">NOSHOW: {item.noshows}</span>}
+                      </div>
+                    </td>
+                    <td className={`py-1 text-center font-black ${String(item.tipo).includes('CIF') ? 'text-blue-400' : 'text-purple-400'} text-[8px]`}>{item.tipo}</td>
+                    <td className="py-1 text-center">
+                      <span className="bg-emerald-500/10 text-emerald-500 px-1.5 py-0.5 rounded text-[8px] font-black">{item.finalizados}</span>
+                    </td>
+                    <td className={`py-1 text-center font-black text-slate-400 text-[8px]`}>{item.horaFim}</td>
+                    <td className={`py-1 text-center font-black text-emerald-400 ${isTVMode ? 'text-[10px]' : 'text-[9px]'}`}>
+                      {item.tempoMedio}{item.tempoMedio !== '--' && <span className="text-[6px] ml-0.5">MIN</span>}
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="text-white">
-                  {blocks?.historicoUnificado.map((item, i) => (
-                    <tr key={i} className="border-b border-slate-800/30 last:border-0">
-                      <td className={`py-1 font-bold truncate ${isTVMode ? 'text-[10px]' : 'text-[9px]'}`}>
-                        <div className="flex flex-col">
-                          <span className="truncate">{truncate(item.nome, 25)}</span>
-                          {item.noshows > 0 && <span className="text-[7px] text-rose-500 font-black tracking-tighter">NOSHOW: {item.noshows}</span>}
-                        </div>
-                      </td>
-                      <td className={`py-1 text-center font-black ${String(item.tipo).includes('CIF') ? 'text-blue-400' : 'text-purple-400'} text-[8px]`}>{item.tipo}</td>
-                      <td className="py-1 text-center">
-                        <span className="bg-emerald-500/10 text-emerald-500 px-1.5 py-0.5 rounded text-[8px] font-black">{item.finalizados}</span>
-                      </td>
-                      <td className={`py-1 text-center font-black text-slate-400 text-[8px]`}>{item.horaFim}</td>
-                      <td className={`py-1 text-center font-black text-emerald-400 ${isTVMode ? 'text-[10px]' : 'text-[9px]'}`}>
-                        {item.tempoMedio}{item.tempoMedio !== '--' && <span className="text-[6px] ml-0.5">MIN</span>}
-                      </td>
-                    </tr>
-                  ))}
-                  {blocks?.historicoUnificado.length === 0 && (
-                     <tr><td colSpan={4} className="py-10 text-center text-slate-600 uppercase font-black text-[11px] tracking-widest">Sem finalizações</td></tr>
-                  )}
-                </tbody>
-             </table>
+                ))}
+                {blocks?.historicoUnificado.length === 0 && (
+                  <tr><td colSpan={4} className="py-10 text-center text-slate-600 uppercase font-black text-[11px] tracking-widest">Sem finalizações</td></tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
 
       {isLoading && (
         <div className="fixed bottom-20 right-6 bg-emerald-600 text-white px-6 py-3 rounded-full shadow-2xl animate-pulse z-50 font-black text-[11px] tracking-[0.2em] border border-emerald-400">
-           SINCRONIZANDO...
+          SINCRONIZANDO...
         </div>
       )}
     </div>
