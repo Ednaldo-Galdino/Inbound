@@ -6,11 +6,14 @@ export const fetchSheetData = async (sheetKey: string, sheetName: string = "dash
   const [sheetId, gidParam] = sheetKey.split('?');
   const gid = gidParam ? gidParam.replace('gid=', '') : null;
 
-  // Build URL: prefer gid if available, else use sheet name
+  // Cache-busting: adiciona timestamp para evitar cache do Google (~5min)
+  const cacheBuster = `&_t=${Date.now()}`;
   const baseUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv`;
-  const url = gid ? `${baseUrl}&gid=${gid}` : `${baseUrl}&sheet=${encodeURIComponent(sheetName)}`;
-  
-  const response = await fetch(url);
+  const url = gid
+    ? `${baseUrl}&gid=${gid}${cacheBuster}`
+    : `${baseUrl}&sheet=${encodeURIComponent(sheetName)}${cacheBuster}`;
+
+  const response = await fetch(url, { cache: 'no-store' });
   if (!response.ok) {
     // Fallback to default first sheet
     const fallbackUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv`;
@@ -19,7 +22,7 @@ export const fetchSheetData = async (sheetKey: string, sheetName: string = "dash
     const csvText = await fallbackResponse.text();
     return parseCSV(csvText);
   }
-  
+
   const csvText = await response.text();
   return parseCSV(csvText);
 };
@@ -40,22 +43,22 @@ const parseCSV = (csv: string): SheetData => {
       const row: Record<string, any> = {};
       headers.forEach((header, index) => {
         const val = values[index] ?? "";
-        
+
         // Stricter number parsing:
         // parseFloat("19/02/2025") returns 19, which corrupts the date.
         // Number("19/02/2025") returns NaN, which is what we want (keep as string).
         const num = Number(val);
-        
+
         // We accept the value as a number only if:
         // 1. It is not an empty string
         // 2. It is a valid number (not NaN)
         // 3. It doesn't look like a date/time string with common separators (to be extra safe against locale formats)
         const isDateLike = val.includes('/') || val.includes(':') || (val.includes('-') && val.split('-').length > 2);
-        
+
         if (val !== "" && !isNaN(num) && !isDateLike) {
-            row[header] = num;
+          row[header] = num;
         } else {
-            row[header] = val;
+          row[header] = val;
         }
       });
       return row;
