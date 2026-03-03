@@ -186,6 +186,9 @@ const App: React.FC = () => {
     const colChave = findH('CHAVE AGENDAMENTO') || findH('CHAVE');
     const colContagem = findH('CONTAGEM') || findH('ID CARGA') || findH('ID');
     const colHoraFim = findH('FIM CONFERENCIA') || findH('FIM DA CONFERENCIA') || findH('HORA FINALIZACAO DA CONFERENCIA') || findH('HORA FIM') || findH('HORA FINALIZACAO') || findH('FIM DA DESCARGA') || findH('FIM');
+    // Adicionais para Tipo de Carga e Paletes
+    const colTipoCarga = findH('TIPO DE CARGA') || findH('TIPO CARGA') || findH('FAMILIA') || findH('FAMÍLIA');
+    const colQtdPaletes = findH('QUANTIDADE') || findH('PALETES') || findH('QTD PALETES') || findH('QTD') || findH('VOLUMES');
     // Mantém colDocaFornec como alias para compatibilidade com o resto do código
     const colDocaFornec = colChegadaDoca;
 
@@ -278,6 +281,37 @@ const App: React.FC = () => {
     const finalizadas = deduplicate(finalizadasRaw, colDocaFornec);
     const noShows = deduplicate(noShowsRaw, colProg);
 
+    // Agrupamento de Aguardando (Programado) por Fornecedor + Tipo de Carga
+    const programadoAgrupadoMap: Record<string, any> = {};
+    programado.forEach((r: any) => {
+      const fornecedor = String(r[colProg] || 'DESCONHECIDO').trim();
+      const tipoCarga = String(r[colTipoCarga] || 'NÃO ESPECIFICADO').trim();
+      const key = `${fornecedor}|${tipoCarga}`;
+
+      let qtdRaw = String(r[colQtdPaletes] || '0').trim().replace(',', '.');
+      let qtd = parseFloat(qtdRaw);
+      if (isNaN(qtd)) qtd = 0;
+
+      if (!programadoAgrupadoMap[key]) {
+        programadoAgrupadoMap[key] = {
+          fornecedor,
+          tipoCarga,
+          totalPaletes: 0,
+          destaques: [] as string[],
+          isDestaque: false
+        };
+      }
+
+      programadoAgrupadoMap[key].totalPaletes += qtd;
+
+      if (isOrdemDestacada(r)) {
+        programadoAgrupadoMap[key].isDestaque = true;
+        const ord = String(r[colOrdem] || r['Ordem'] || '').trim();
+        if (ord) programadoAgrupadoMap[key].destaques.push(ord);
+      }
+    });
+
+    const programadoAgrupado = Object.values(programadoAgrupadoMap);
 
     const finalizadasCIF = finalizadas.filter(r => String(r[colTipo] ?? '').toUpperCase().includes('CIF'));
     const finalizadasFOB = finalizadas.filter(r => String(r[colTipo] ?? '').toUpperCase().includes('FOB'));
@@ -326,6 +360,7 @@ const App: React.FC = () => {
 
     return {
       programado,
+      programadoAgrupado,
       emOperacao,
       finalizadas,
       noShows,
@@ -334,7 +369,7 @@ const App: React.FC = () => {
       historicoUnificado,
       totalDoDia,
       extraCols,
-      cols: { colProg, colDocaFornec, colOrdem, colDocaNum, colStatus, colTempoTotal, colTipo, colData, colHoraFim }
+      cols: { colProg, colDocaFornec, colOrdem, colDocaNum, colStatus, colTempoTotal, colTipo, colData, colHoraFim, colTipoCarga, colQtdPaletes }
     };
   }, [data, selectedDate]);
 
@@ -458,20 +493,26 @@ const App: React.FC = () => {
           <div className="p-2 overflow-y-auto flex-grow custom-scrollbar">
             <table className="w-full text-left table-auto">
               <tbody className="text-white">
-                {blocks?.programado.map((row, i) => {
-                  const destaque = isOrdemDestacada(row);
+                {blocks?.programadoAgrupado.map((item: any, i: number) => {
                   return (
-                    <tr key={i} className={`border-b border-slate-800/40 last:border-0 transition-colors ${destaque ? 'bg-yellow-500/15 border-yellow-500/30' : 'hover:bg-white/5'}`}>
-                      <td className="py-1 px-3">
-                        <div className={`font-bold leading-tight truncate ${destaque ? 'text-yellow-300' : 'text-blue-300'} ${isTVMode ? 'text-[12px]' : 'text-[10px]'}`}>
-                          {truncate(row[blocks.cols.colProg], 30)}
+                    <tr key={i} className={`border-b border-slate-800/40 last:border-0 transition-colors ${item.isDestaque ? 'bg-yellow-500/15 border-yellow-500/30' : 'hover:bg-white/5'}`}>
+                      <td className="py-2 px-3">
+                        <div className={`font-bold leading-tight truncate ${item.isDestaque ? 'text-yellow-300' : 'text-blue-300'} ${isTVMode ? 'text-[12px]' : 'text-[10px]'}`}>
+                          {truncate(item.fornecedor, 25)} <span className="text-slate-400 font-normal text-[9px]">({item.tipoCarga})</span>
                         </div>
-                        {destaque && <div className="text-[8px] text-yellow-500 font-black tracking-widest">⚡ ORDEM {row['ORDEM'] || row['Ordem']}</div>}
+                        <div className="text-[10px] text-emerald-400 font-black mt-0.5">
+                          {item.totalPaletes} PALETES
+                        </div>
+                        {item.isDestaque && item.destaques.length > 0 && (
+                          <div className="text-[8px] text-yellow-500 font-black tracking-widest mt-0.5">
+                            ⚡ ORDENS: {item.destaques.join(', ')}
+                          </div>
+                        )}
                       </td>
                     </tr>
                   );
                 })}
-                {blocks?.programado.length === 0 && (
+                {blocks?.programadoAgrupado.length === 0 && (
                   <tr><td className="py-10 text-center text-slate-600 uppercase font-black text-[11px] tracking-widest">Lista vazia</td></tr>
                 )}
               </tbody>
