@@ -141,6 +141,22 @@ const App: React.FC = () => {
     return bastimeOrdens.has(ordem);
   };
 
+  const isFinished = (status: any) => {
+    const s = String(status ?? '').toUpperCase();
+    return s.includes('FINALIZADO') || s.includes('CONCLUÍDO') || s.includes('CONFERENCIA FINALIZADA') || s.includes('CONFERÊNCIA FINALIZADA') || s.includes('OK') || s.includes('FINALIZADA');
+  };
+
+  const isNoShow = (status: any) => {
+    const s = String(status ?? '').toUpperCase();
+    return s.includes('NOSHOW') || s.includes('NO SHOW') || s.includes('FALTOU') || s.includes('AUSENTE');
+  };
+
+  const isInTransit = (status: any) => {
+    const s = String(status ?? '').toUpperCase();
+    if (s.includes('AGUARDANDO DESCARGA') || s.includes('AGUARDANDO CONFERENCIA') || s.includes('AGUARDANDO CONFERÊNCIA')) return false;
+    return s.includes('TRANSITO') || s.includes('TRÂNSITO') || s.includes('AGUARDANDO') || s.includes('AGUARDANDO VEICULO') || s.includes('AGUARDANDO VEÍCULO');
+  };
+
   const blocks = useMemo(() => {
     if (!data) return null;
     const h = data.headers;
@@ -250,26 +266,10 @@ const App: React.FC = () => {
     // Total de cargas do dia (Deduplicado para contar cargas únicas)
     const totalDoDia = deduplicate(rawFiltered, colProg).length;
 
-    const isFinished = (status: any) => {
-      const s = String(status ?? '').toUpperCase();
-      return s.includes('FINALIZADO') || s.includes('CONCLUÍDO') || s.includes('CONFERENCIA FINALIZADA') || s.includes('CONFERÊNCIA FINALIZADA') || s.includes('OK') || s.includes('FINALIZADA');
-    };
-
-    const isNoShow = (status: any) => {
-      const s = String(status ?? '').toUpperCase();
-      return s.includes('NOSHOW') || s.includes('NO SHOW') || s.includes('FALTOU') || s.includes('AUSENTE');
-    };
-
-    const isInTransit = (status: any) => {
-      const s = String(status ?? '').toUpperCase();
-      return s.includes('TRANSITO') || s.includes('TRÂNSITO') || s.includes('AGUARDANDO') || s.includes('AGUARDANDO VEICULO') || s.includes('AGUARDANDO VEÍCULO');
-    };
-
-    // Aguardando: fornecedor programado, ainda não chegou na doca, não finalizado
-    // Na planilha: 'Chegada em doca' vazia OU status = Em trânsito / AGUARDANDO VEÍCULO
-    const programadoRaw = rawFiltered.filter(r => r[colProg] && !isFinished(r[colStatus]) && !isNoShow(r[colStatus]) && (!r[colDocaFornec] || isInTransit(r[colStatus])));
-    // Em operação: chegada em doca preenchida, ainda não finalizado
-    const emOperacaoRaw = rawFiltered.filter(r => r[colDocaFornec] && !isFinished(r[colStatus]) && !isNoShow(r[colStatus]) && !isInTransit(r[colStatus]));
+    // Aguardando: fornecedor programado, ainda não chegou na doca, não finalizado, e não destacada via Forms
+    const programadoRaw = rawFiltered.filter(r => r[colProg] && !isFinished(r[colStatus]) && !isNoShow(r[colStatus]) && (!r[colDocaFornec] || isInTransit(r[colStatus])) && !isOrdemDestacada(r));
+    // Em operação: chegada em doca preenchida ou destacada via Forms, ainda não finalizado
+    const emOperacaoRaw = rawFiltered.filter(r => !isFinished(r[colStatus]) && !isNoShow(r[colStatus]) && (isOrdemDestacada(r) || (r[colDocaFornec] && !isInTransit(r[colStatus]))));
     const finalizadasRaw = rawFiltered.filter(r => isFinished(r[colStatus]));
     const noShowsRaw = rawFiltered.filter(r => isNoShow(r[colStatus]));
 
@@ -515,8 +515,8 @@ const App: React.FC = () => {
                       </td>
                       <td className="py-1.5 text-center">
                         <div className="flex justify-center w-full px-1">
-                          <span className={`w-full max-w-[120px] px-1 py-0.5 rounded border font-black uppercase tracking-tight whitespace-nowrap overflow-hidden text-ellipsis ${getStatusStyle(row[blocks.cols.colStatus])} ${isTVMode ? 'text-[9px]' : 'text-[8px]'}`}>
-                            {row[blocks.cols.colStatus] || 'DOCA'}
+                          <span className={`w-full max-w-[120px] px-1 py-0.5 rounded border font-black uppercase tracking-tight whitespace-nowrap overflow-hidden text-ellipsis ${getStatusStyle((destaque && (!row[blocks.cols.colStatus] || isInTransit(row[blocks.cols.colStatus]))) ? 'EM DOCA' : row[blocks.cols.colStatus])} ${isTVMode ? 'text-[9px]' : 'text-[8px]'}`}>
+                            {(destaque && (!row[blocks.cols.colStatus] || isInTransit(row[blocks.cols.colStatus]))) ? 'EM DOCA' : (row[blocks.cols.colStatus] || 'DOCA')}
                           </span>
                         </div>
                       </td>
