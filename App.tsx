@@ -73,7 +73,28 @@ const App: React.FC = () => {
 
       const parseLine = (line: string) => line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(p => p.replace(/^"|"$/g, '').trim());
       const headers = parseLine(lines[0]);
-      const rows = lines.slice(1).map(line => parseLine(line));
+      let rows = lines.slice(1).map(line => parseLine(line));
+
+      // Filtra apenas por hoje
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const colDataIdx = headers.findIndex(h => normalize(h).includes('DAT') || normalize(h).includes('CHEGADA') || normalize(h).includes('DOCA'));
+      const fIdx = colDataIdx >= 0 ? colDataIdx : 5;
+
+      const parseDate = (v: string): Date | null => {
+        const s = String(v || '').trim();
+        const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+        if (m) return new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]), 12);
+        const m2 = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+        if (m2) return new Date(parseInt(m2[1]), parseInt(m2[2]) - 1, parseInt(m2[3]), 12);
+        return null;
+      };
+
+      rows = rows.filter(r => {
+        const dt = parseDate(r[fIdx]);
+        if (!dt) return false;
+        return dt.getDate() === today.getDate() && dt.getMonth() === today.getMonth() && dt.getFullYear() === today.getFullYear();
+      });
 
       const ordens = new Set<string>();
       rows.forEach(parts => {
@@ -81,7 +102,7 @@ const App: React.FC = () => {
         if (ordem) ordens.add(ordem.toUpperCase());
       });
 
-      console.log(`BaseTIme carregada: ${rows.length} linhas found.`);
+      console.log(`BaseTIme carregada (Hoje): ${rows.length} linhas found.`);
       setBastimeOrdens(ordens);
       setBaseTImeData({ headers, rows });
     } catch (err) {
@@ -340,73 +361,33 @@ const App: React.FC = () => {
     };
   }, [data, selectedDate]);
 
-  // Soma paletes por Tipo da Carga - período D+4 (hoje até hoje+4 dias), TODOS os status
+  // Soma paletes por Tipo da Carga - apenas para as linhas pré-filtradas de HOJE
   const paletesDodia = useMemo(() => {
     if (!baseTImeData) return {};
     const { headers, rows } = baseTImeData;
 
-    // Colunas na BaseTIme:
-    // T (index 19) - Tipo armazenagem
-    // U (index 20) - PALETE
-    // F (index 5) - Chegada em doca (usar como referência de data)
-    // Procura colunas por nome (mais flexível)
     const colTipoIdx = headers.findIndex(h => normalize(h).includes('ARMAZEN'));
     const colPaleteIdx = headers.findIndex(h => normalize(h).includes('PALET'));
-    const colDataIdx = headers.findIndex(h => normalize(h).includes('DAT') || normalize(h).includes('CHEGADA') || normalize(h).includes('DOCA'));
 
-    // Fallbacks baseados na pesquisa (T=19, U=20, F=5)
-    // Se não achar pelo nome, usa os índices fixos conhecidos
     const tIdx = colTipoIdx >= 0 ? colTipoIdx : 19;
     const uIdx = colPaleteIdx >= 0 ? colPaleteIdx : 20;
-    const fIdx = colDataIdx >= 0 ? colDataIdx : 5;
-
-    // Força o uso da data do mundo REAL para paletes, independente do filtro do dashboard
-    const dataBase = new Date();
-    dataBase.setHours(0, 0, 0, 0);
-    const limite = new Date(dataBase);
-    limite.setDate(dataBase.getDate() + 4);
-    limite.setHours(23, 59, 59, 999);
-
-    console.log(`Cálculo Paletes: Base=${dataBase.toLocaleDateString()} Limite=${limite.toLocaleDateString()}`);
-
-    const parseDate = (v: string): Date | null => {
-      const s = String(v || '').trim();
-      const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-      if (m) return new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]), 12);
-      const m2 = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
-      if (m2) return new Date(parseInt(m2[1]), parseInt(m2[2]) - 1, parseInt(m2[3]), 12);
-      return null;
-    };
 
     const totais: Record<string, number> = {};
-    let totalProcessado = 0;
 
-    rows.forEach((r, idx) => {
-      const dateVal = r[fIdx] || '';
-      const dt = parseDate(dateVal);
+    rows.forEach(r => {
+      let tipo = String(r[tIdx] || '').trim().toUpperCase();
+      if (!tipo) tipo = String(r[tIdx + 1] || r[tIdx - 1] || '').trim().toUpperCase();
 
-      if (dt && dt >= dataBase && dt <= limite) {
-        let tipo = String(r[tIdx] || '').trim().toUpperCase();
-        if (!tipo) tipo = String(r[tIdx + 1] || r[tIdx - 1] || '').trim().toUpperCase();
+      const qtdValue = String(r[uIdx] || '0').replace(',', '.');
+      const qtd = parseFloat(qtdValue) || 0;
 
-        const qtdValue = String(r[uIdx] || '0').replace(',', '.');
-        const qtd = parseFloat(qtdValue) || 0;
-
-        if (qtd > 0 && tipo) {
-          const key = normalize(tipo);
-          totais[key] = (totais[key] || 0) + qtd;
-          totalProcessado++;
-
-        }
+      if (qtd > 0 && tipo) {
+        const key = normalize(tipo);
+        totais[key] = (totais[key] || 0) + qtd;
       }
     });
 
-    if (totalProcessado > 0) {
-      console.log(`Paletes BaseTIme: Processadas ${totalProcessado} linhas.`);
-      console.log("Paletes BaseTIme Totais:", totais);
-    } else {
-      console.log("Paletes BaseTIme: Nenhuma linha processada.");
-    }
+    console.log("Paletes BaseTIme Totais (HOJE):", totais);
     return totais;
   }, [baseTImeData]);
 
