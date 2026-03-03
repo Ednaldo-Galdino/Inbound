@@ -38,6 +38,8 @@ const App: React.FC = () => {
 
   // Ordens recebidas via Forms (aba BaseTIme)
   const [bastimeOrdens, setBastimeOrdens] = useState<Set<string>>(new Set());
+  // IDs das cargas hoje da aba BaseTIme
+  const [bastimeIds, setBastimeIds] = useState<Set<string>>(new Set());
   // Dados brutos da aba BaseTIme para agregação de paletes
   const [baseTImeData, setBaseTImeData] = useState<{ headers: string[], rows: any[] } | null>(null);
 
@@ -83,8 +85,13 @@ const App: React.FC = () => {
 
       const parseDate = (v: string): Date | null => {
         const s = String(v || '').trim();
+        // DD/MM/YYYY
         const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
         if (m) return new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]), 12);
+        // DD/MM
+        const m3 = s.match(/^(\d{1,2})\/(\d{1,2})$/);
+        if (m3) return new Date(today.getFullYear(), parseInt(m3[2]) - 1, parseInt(m3[1]), 12);
+        // YYYY-MM-DD
         const m2 = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
         if (m2) return new Date(parseInt(m2[1]), parseInt(m2[2]) - 1, parseInt(m2[3]), 12);
         return null;
@@ -97,13 +104,20 @@ const App: React.FC = () => {
       });
 
       const ordens = new Set<string>();
+      const ids = new Set<string>();
       rows.forEach(parts => {
-        const ordem = parts[1]?.trim();
+        // Ordem (coluna C na planilha = index 2)
+        const ordem = parts[2]?.trim();
         if (ordem) ordens.add(ordem.toUpperCase());
+
+        // ID da carga (coluna E na planilha = index 4)
+        const idCarga = parts[4]?.trim();
+        if (idCarga) ids.add(idCarga);
       });
 
-      console.log(`BaseTIme carregada (Hoje): ${rows.length} linhas found.`);
+      console.log(`BaseTIme carregada (Hoje): ${rows.length} linhas found. IDs: ${ids.size}`);
       setBastimeOrdens(ordens);
+      setBastimeIds(ids);
       setBaseTImeData({ headers, rows });
     } catch (err) {
       console.error('Erro ao carregar BaseTIme:', err);
@@ -234,7 +248,15 @@ const App: React.FC = () => {
     };
 
     // Filtragem por data selecionada usando a coluna detectada
-    const rawFiltered = colData ? data.rows.filter(r => isMatchingDate(r[colData])) : data.rows;
+    let rawFiltered = colData ? data.rows.filter(r => isMatchingDate(r[colData])) : data.rows;
+
+    // Sincronização estrita: mostra APENAS o que está na aba BaseTIme de hoje
+    if (baseTImeData) {
+      rawFiltered = rawFiltered.filter(r => {
+        const id = String(r[colContagem] || '').trim();
+        return bastimeIds.has(id);
+      });
+    }
 
     const deduplicate = (rows: any[], _primaryKey?: string) => {
       const seen = new Set();
