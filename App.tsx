@@ -21,6 +21,8 @@ const GiroTradeLogo: React.FC<{ isTVMode: boolean }> = ({ isTVMode }) => (
   </div>
 );
 
+const normalize = (str: string) => (str || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+
 const DEFAULT_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1kgo_BrjuyPp5zxOGaJJfucd6t9fdufE8KF2Po-aCkGk/edit?pli=1&gid=961088198#gid=961088198';
 
 const App: React.FC = () => {
@@ -34,8 +36,10 @@ const App: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [copied, setCopied] = useState(false);
 
-  // Ordens recebidas via Forms (aba bastime)
+  // Ordens recebidas via Forms (aba BaseTIme)
   const [bastimeOrdens, setBastimeOrdens] = useState<Set<string>>(new Set());
+  // Dados brutos da aba BaseTIme para agregação de paletes
+  const [baseTImeData, setBaseTImeData] = useState<{ headers: string[], rows: any[] } | null>(null);
 
   const sheetId = activeSheetId.split('?')[0];
 
@@ -47,39 +51,8 @@ const App: React.FC = () => {
       setData(sheetData);
       setLastUpdated(new Date());
 
-      // Auto-detecta a data mais recente com dados na planilha
-      setSelectedDate(prev => {
-        const today = new Date();
-        // Verifica se já há dados para hoje
-        const colData = sheetData.headers.find(h =>
-          h.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').includes('DATA')
-        ) || '';
-        if (!colData) return prev;
-
-        const todayStr = `${today.getDate()}/${today.getMonth() + 1}`;
-        const hasToday = sheetData.rows.some(r => {
-          const v = String(r[colData] || '').trim();
-          return v.startsWith(todayStr) || v.startsWith(`${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}`);
-        });
-        if (hasToday) return today;
-
-        // Encontra a data mais recente na planilha
-        let latestDate: Date | null = null;
-        sheetData.rows.forEach(r => {
-          const v = String(r[colData] || '').trim();
-          const parts = v.split(/[\/\-]/);
-          if (parts.length >= 2) {
-            const d = parseInt(parts[0]);
-            const m = parseInt(parts[1]) - 1;
-            const y = parts.length >= 3 ? parseInt(parts[2]) : today.getFullYear();
-            const dt = new Date(y < 100 ? y + 2000 : y, m, d, 12);
-            if (!isNaN(dt.getTime()) && (!latestDate || dt > latestDate)) {
-              latestDate = dt;
-            }
-          }
-        });
-        return latestDate || prev;
-      });
+      // Mantém sempre na data de hoje
+      setSelectedDate(new Date());
     } catch (err: any) {
       setError("Erro ao carregar dados. Verifique se a planilha está pública.");
     } finally {
@@ -87,23 +60,33 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // Lê a aba bastime para pegar ordens enviadas pelo Forms
+  // Lê a aba BaseTIme para pegar ordens enviadas pelo Forms e dados de paletes (colunas T e U)
   const loadBastime = useCallback(async () => {
     try {
-      const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=bastime&_t=${Date.now()}`;
+      const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=BaseTIme&_t=${Date.now()}`;
       const res = await fetch(url, { cache: 'no-store' });
       if (!res.ok) return;
       const csv = await res.text();
+
       const lines = csv.split(/\r?\n/).filter(l => l.trim());
+      if (lines.length === 0) return;
+
+      const parseLine = (line: string) => line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(p => p.replace(/^"|"$/g, '').trim());
+      const headers = parseLine(lines[0]);
+      const rows = lines.slice(1).map(line => parseLine(line));
+
       const ordens = new Set<string>();
-      lines.slice(1).forEach(line => {
-        // Formato: "carimbo","NUMERO_DA_ORDEM"
-        const parts = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
-        const ordem = parts[1]?.replace(/^"|"$/g, '').trim();
+      rows.forEach(parts => {
+        const ordem = parts[1]?.trim();
         if (ordem) ordens.add(ordem.toUpperCase());
       });
+
+      console.log(`BaseTIme carregada: ${rows.length} linhas found.`);
       setBastimeOrdens(ordens);
-    } catch { }
+      setBaseTImeData({ headers, rows });
+    } catch (err) {
+      console.error('Erro ao carregar BaseTIme:', err);
+    }
   }, [sheetId]);
 
   useEffect(() => {
@@ -121,19 +104,7 @@ const App: React.FC = () => {
     return s.length > n ? s.substr(0, n - 1) + '...' : s;
   };
 
-  const changeDate = (days: number) => {
-    const newDate = new Date(selectedDate);
-    newDate.setDate(selectedDate.getDate() + days);
-    setSelectedDate(newDate);
-  };
 
-  const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.value) {
-      const parts = e.target.value.split('-');
-      const newDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]), 12, 0, 0);
-      setSelectedDate(newDate);
-    }
-  };
 
   const isOrdemDestacada = (row: any) => {
     if (bastimeOrdens.size === 0) return false;
@@ -186,6 +157,13 @@ const App: React.FC = () => {
     const colChave = findH('CHAVE AGENDAMENTO') || findH('CHAVE');
     const colContagem = findH('CONTAGEM') || findH('ID CARGA') || findH('ID');
     const colHoraFim = findH('FIM CONFERENCIA') || findH('FIM DA CONFERENCIA') || findH('HORA FINALIZACAO DA CONFERENCIA') || findH('HORA FIM') || findH('HORA FINALIZACAO') || findH('FIM DA DESCARGA') || findH('FIM');
+    // Coluna 17 - "Tipo da Carga": tipo de armazenagem para o FORNECEDOR EM DOCA
+    // Coluna 18 - "Quantidade Palete": quantidade de paletes recebidos
+    // Coluna 22 - "Tipo da carga": tipo para o FORNECEDOR PROGRAMADO (aguardando)
+    const allTipoCargaCols = h.filter(col => col.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().trim().includes('TIPO DA CARGA') || col.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().trim().includes('TIPO DE CARGA'));
+    const colTipoCargaProg = allTipoCargaCols.length > 1 ? allTipoCargaCols[1] : (allTipoCargaCols[0] || '');
+    const colTipoCarga = allTipoCargaCols[0] || '';
+    const colQtdPalete = findH('Quantidade Palete') || findH('QUANTIDADE PALETE') || findH('PALETES') || findH('QTD PALETE');
     // Mantém colDocaFornec como alias para compatibilidade com o resto do código
     const colDocaFornec = colChegadaDoca;
 
@@ -278,6 +256,29 @@ const App: React.FC = () => {
     const finalizadas = deduplicate(finalizadasRaw, colDocaFornec);
     const noShows = deduplicate(noShowsRaw, colProg);
 
+    // Agrupamento de Aguardando (Programado) APENAS por Tipo de Carga com Paletes Fixos = 28
+    const programadoAgrupadoMap: Record<string, any> = {};
+    programado.forEach((r: any) => {
+      const tipoCargaVal = colTipoCargaProg ? r[colTipoCargaProg] : undefined;
+      const tipoCargaStr = tipoCargaVal !== undefined && tipoCargaVal !== null && tipoCargaVal !== '' && tipoCargaVal !== 0
+        ? String(tipoCargaVal).trim()
+        : '';
+      const tipoCarga = tipoCargaStr !== '' ? tipoCargaStr.toUpperCase() : 'NÃO ESPECIFICADO';
+      const key = `${tipoCarga}`;
+
+      if (!programadoAgrupadoMap[key]) {
+        programadoAgrupadoMap[key] = {
+          tipoCarga,
+          totalPaletes: 0,
+          veiculos: 0
+        };
+      }
+
+      programadoAgrupadoMap[key].veiculos += 1;
+      programadoAgrupadoMap[key].totalPaletes += 28;
+    });
+
+    const programadoAgrupado = Object.values(programadoAgrupadoMap);
 
     const finalizadasCIF = finalizadas.filter(r => String(r[colTipo] ?? '').toUpperCase().includes('CIF'));
     const finalizadasFOB = finalizadas.filter(r => String(r[colTipo] ?? '').toUpperCase().includes('FOB'));
@@ -326,6 +327,7 @@ const App: React.FC = () => {
 
     return {
       programado,
+      programadoAgrupado,
       emOperacao,
       finalizadas,
       noShows,
@@ -334,14 +336,130 @@ const App: React.FC = () => {
       historicoUnificado,
       totalDoDia,
       extraCols,
-      cols: { colProg, colDocaFornec, colOrdem, colDocaNum, colStatus, colTempoTotal, colTipo, colData, colHoraFim }
+      cols: { colProg, colDocaFornec, colOrdem, colDocaNum, colStatus, colTempoTotal, colTipo, colData, colHoraFim, colTipoCarga }
     };
   }, [data, selectedDate]);
 
+  // Soma paletes por Tipo da Carga - período D+4 (hoje até hoje+4 dias), TODOS os status
+  const paletesDodia = useMemo(() => {
+    if (!baseTImeData) return {};
+    const { headers, rows } = baseTImeData;
+
+    // Colunas na BaseTIme:
+    // T (index 19) - Tipo armazenagem
+    // U (index 20) - PALETE
+    // F (index 5) - Chegada em doca (usar como referência de data)
+    // Procura colunas por nome (mais flexível)
+    const colTipoIdx = headers.findIndex(h => normalize(h).includes('ARMAZEN'));
+    const colPaleteIdx = headers.findIndex(h => normalize(h).includes('PALET'));
+    const colDataIdx = headers.findIndex(h => normalize(h).includes('DAT') || normalize(h).includes('CHEGADA') || normalize(h).includes('DOCA'));
+
+    // Fallbacks baseados na pesquisa (T=19, U=20, F=5)
+    // Se não achar pelo nome, usa os índices fixos conhecidos
+    const tIdx = colTipoIdx >= 0 ? colTipoIdx : 19;
+    const uIdx = colPaleteIdx >= 0 ? colPaleteIdx : 20;
+    const fIdx = colDataIdx >= 0 ? colDataIdx : 5;
+
+    // Força o uso da data do mundo REAL para paletes, independente do filtro do dashboard
+    const dataBase = new Date();
+    dataBase.setHours(0, 0, 0, 0);
+    const limite = new Date(dataBase);
+    limite.setDate(dataBase.getDate() + 4);
+    limite.setHours(23, 59, 59, 999);
+
+    console.log(`Cálculo Paletes: Base=${dataBase.toLocaleDateString()} Limite=${limite.toLocaleDateString()}`);
+
+    const parseDate = (v: string): Date | null => {
+      const s = String(v || '').trim();
+      const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+      if (m) return new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]), 12);
+      const m2 = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+      if (m2) return new Date(parseInt(m2[1]), parseInt(m2[2]) - 1, parseInt(m2[3]), 12);
+      return null;
+    };
+
+    const totais: Record<string, number> = {};
+    let totalProcessado = 0;
+
+    rows.forEach((r, idx) => {
+      const dateVal = r[fIdx] || '';
+      const dt = parseDate(dateVal);
+
+      if (dt && dt >= dataBase && dt <= limite) {
+        let tipo = String(r[tIdx] || '').trim().toUpperCase();
+        if (!tipo) tipo = String(r[tIdx + 1] || r[tIdx - 1] || '').trim().toUpperCase();
+
+        const qtdValue = String(r[uIdx] || '0').replace(',', '.');
+        const qtd = parseFloat(qtdValue) || 0;
+
+        if (qtd > 0 && tipo) {
+          const key = normalize(tipo);
+          totais[key] = (totais[key] || 0) + qtd;
+          totalProcessado++;
+
+        }
+      }
+    });
+
+    if (totalProcessado > 0) {
+      console.log(`Paletes BaseTIme: Processadas ${totalProcessado} linhas.`);
+      console.log("Paletes BaseTIme Totais:", totais);
+    } else {
+      console.log("Paletes BaseTIme: Nenhuma linha processada.");
+    }
+    return totais;
+  }, [baseTImeData]);
+
   const displayKPIs = useMemo(() => {
     if (!blocks) return [];
+
+    // Categorias fixas de armazenagem (por enquanto estáticas, enquanto a integração com a planilha é ajustada)
+    const categoriasFix = [
+      'MERCEARIA SECA',
+      'BEBIDAS',
+      'LIMPEZA E LAVANDERIA',
+      'HIGIENE, SAUDE E BELEZA',
+      'AEROSOL',
+    ];
+
+    // Conta quantos veículos programados pertencem a cada categoria (via coluna da planilha ou 0)
+    const contagemPorCategoria: Record<string, number> = {};
+    categoriasFix.forEach(c => { contagemPorCategoria[c] = 0; });
+    blocks.programadoAgrupado.forEach((item: any) => {
+      const tipo = (item.tipoCarga || '').toUpperCase();
+      if (categoriasFix.includes(tipo)) {
+        contagemPorCategoria[tipo] = (contagemPorCategoria[tipo] || 0) + item.veiculos;
+      }
+    });
+
+    const aguardandoDetails = categoriasFix.map(cat => {
+      const normalizedCat = normalize(cat);
+      let valor = 0;
+      Object.keys(paletesDodia).forEach(k => {
+        const normalizedKey = k; // Já está normalizado no paletesDodia
+        // Match se um contiver o outro ou se as primeiras 5 letras baterem
+        if (normalizedKey === normalizedCat ||
+          normalizedKey.includes(normalizedCat) ||
+          normalizedCat.includes(normalizedKey) ||
+          (normalizedKey.substring(0, 5) === normalizedCat.substring(0, 5) && normalizedKey.length > 3)) {
+          valor += paletesDodia[k];
+        }
+      });
+
+      return {
+        label: cat,
+        value: `${valor} PLTS`
+      };
+    });
+
     return [
-      { title: 'Aguardando', value: String(blocks.programado.length), description: 'Pátio / Trânsito', trend: 'neutral' },
+      {
+        title: 'Tipo de armazenagem / QNT paletes',
+        value: String(blocks.programado.length),
+        description: 'Pátio / Trânsito',
+        trend: 'neutral',
+        details: aguardandoDetails.length > 0 ? aguardandoDetails : undefined
+      },
       { title: 'Em Operação', value: String(blocks.emOperacao.length), description: 'Cargas em Doca', trend: 'neutral' },
       {
         title: 'Finalizados',
@@ -356,7 +474,7 @@ const App: React.FC = () => {
         ]
       }
     ] as AIInsight[];
-  }, [blocks]);
+  }, [blocks, paletesDodia]);
 
   // Unused function renderExtraInfo removed from here
 
@@ -386,27 +504,12 @@ const App: React.FC = () => {
           {/* Seletor de Data */}
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-2 bg-slate-900/80 p-1 rounded-xl border border-slate-800 shadow-lg">
-              <button onClick={() => changeDate(-1)} className="w-6 h-6 flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-white rounded-lg transition-colors">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
-              </button>
-
-              <div className="relative group">
-                <div className="flex items-center gap-2 px-2 cursor-pointer">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
-                  <span className={`font-black text-white uppercase tracking-wide ${isTVMode ? 'text-sm' : 'text-xs'}`}>
-                    {formatDateDisplay(selectedDate)}
-                  </span>
-                </div>
-                <input
-                  type="date"
-                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                  onChange={handleDateChange}
-                />
+              <div className="flex items-center gap-2 px-3 py-1">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                <span className={`font-black text-white uppercase tracking-wide ${isTVMode ? 'text-sm' : 'text-xs'}`}>
+                  {formatDateDisplay(selectedDate)}
+                </span>
               </div>
-
-              <button onClick={() => changeDate(1)} className="w-6 h-6 flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-white rounded-lg transition-colors">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
-              </button>
             </div>
           </div>
 
@@ -452,8 +555,10 @@ const App: React.FC = () => {
         {/* A Chegar - Layout Ajustado */}
         <div className="col-span-3 bg-slate-900/60 border border-slate-800 rounded-[2rem] overflow-hidden flex flex-col shadow-2xl relative">
           <div className="bg-blue-600 px-3 py-2 flex justify-between items-center">
-            <h2 className="text-white font-black uppercase text-[11px] tracking-widest">Aguardando</h2>
-            <span className="bg-blue-800 text-blue-100 text-[9px] font-bold px-1.5 py-0.5 rounded-md">{blocks?.programado.length}</span>
+            <h2 className={`text-white font-black uppercase tracking-widest ${isTVMode ? 'text-[11px] leading-tight' : 'text-[13px] leading-tight'}`}>
+              AGUARDANDO / PÁTIO / TRÂNSITO
+            </h2>
+            <span className="bg-blue-800 text-blue-100 text-[10px] font-bold px-1.5 py-0.5 rounded-md">{blocks?.programado.length}</span>
           </div>
           <div className="p-2 overflow-y-auto flex-grow custom-scrollbar">
             <table className="w-full text-left table-auto">
@@ -582,20 +687,7 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Indicador de ordens em destaque (bastime) */}
-      {!isTVMode && bastimeOrdens.size > 0 && (
-        <div className="mt-3 px-2">
-          <div className="flex items-center gap-2 bg-yellow-500/10 border border-yellow-500/30 rounded-xl px-4 py-2">
-            <span className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse"></span>
-            <span className="text-yellow-400 font-black text-[11px] uppercase tracking-wider">
-              {bastimeOrdens.size} ordem{bastimeOrdens.size > 1 ? 's' : ''} em destaque via Forms
-            </span>
-            <span className="text-yellow-600 text-[10px] ml-2">
-              [{[...bastimeOrdens].join(', ')}]
-            </span>
-          </div>
-        </div>
-      )}
+
     </div>
   );
 };
