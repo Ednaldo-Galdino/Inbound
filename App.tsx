@@ -375,8 +375,24 @@ const App: React.FC = () => {
 
   const displayKPIs = useMemo(() => {
     if (!blocks) return [];
+
+    const aguardandoDetails = blocks.programadoAgrupado.map((item: any) => ({
+      label: `${truncate(item.fornecedor, 12)} (${truncate(item.tipoCarga, 12)})`,
+      value: `${item.totalPaletes} PLTS`
+    }));
+
+    if (aguardandoDetails.length > 0) {
+      aguardandoDetails.push({ label: 'TOTAL CARGAS', value: String(blocks.programado.length), isTotal: true });
+    }
+
     return [
-      { title: 'Aguardando', value: String(blocks.programado.length), description: 'Pátio / Trânsito', trend: 'neutral' },
+      {
+        title: 'Tipos de Carga / Qtd Palete',
+        value: String(blocks.programado.length),
+        description: 'Pátio / Trânsito',
+        trend: 'neutral',
+        details: aguardandoDetails.length > 0 ? aguardandoDetails : undefined
+      },
       { title: 'Em Operação', value: String(blocks.emOperacao.length), description: 'Cargas em Doca', trend: 'neutral' },
       {
         title: 'Finalizados',
@@ -493,26 +509,20 @@ const App: React.FC = () => {
           <div className="p-2 overflow-y-auto flex-grow custom-scrollbar">
             <table className="w-full text-left table-auto">
               <tbody className="text-white">
-                {blocks?.programadoAgrupado.map((item: any, i: number) => {
+                {blocks?.programado.map((row: any, i: number) => {
+                  const destaque = isOrdemDestacada(row);
                   return (
-                    <tr key={i} className={`border-b border-slate-800/40 last:border-0 transition-colors ${item.isDestaque ? 'bg-yellow-500/15 border-yellow-500/30' : 'hover:bg-white/5'}`}>
-                      <td className="py-2 px-3">
-                        <div className={`font-bold leading-tight truncate ${item.isDestaque ? 'text-yellow-300' : 'text-blue-300'} ${isTVMode ? 'text-[12px]' : 'text-[10px]'}`}>
-                          {truncate(item.fornecedor, 25)} <span className="text-slate-400 font-normal text-[9px]">({item.tipoCarga})</span>
+                    <tr key={i} className={`border-b border-slate-800/40 last:border-0 transition-colors ${destaque ? 'bg-yellow-500/15 border-yellow-500/30' : 'hover:bg-white/5'}`}>
+                      <td className="py-1 px-3">
+                        <div className={`font-bold leading-tight truncate ${destaque ? 'text-yellow-300' : 'text-blue-300'} ${isTVMode ? 'text-[12px]' : 'text-[10px]'}`}>
+                          {truncate(row[blocks.cols.colProg], 30)}
                         </div>
-                        <div className="text-[10px] text-emerald-400 font-black mt-0.5">
-                          {item.totalPaletes} PALETES
-                        </div>
-                        {item.isDestaque && item.destaques.length > 0 && (
-                          <div className="text-[8px] text-yellow-500 font-black tracking-widest mt-0.5">
-                            ⚡ ORDENS: {item.destaques.join(', ')}
-                          </div>
-                        )}
+                        {destaque && <div className="text-[8px] text-yellow-500 font-black tracking-widest">⚡ ORDEM {row['ORDEM'] || row['Ordem']}</div>}
                       </td>
                     </tr>
                   );
                 })}
-                {blocks?.programadoAgrupado.length === 0 && (
+                {blocks?.programado.length === 0 && (
                   <tr><td className="py-10 text-center text-slate-600 uppercase font-black text-[11px] tracking-widest">Lista vazia</td></tr>
                 )}
               </tbody>
