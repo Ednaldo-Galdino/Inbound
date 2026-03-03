@@ -80,15 +80,15 @@ const App: React.FC = () => {
       // Filtra apenas por hoje
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      const colDataIdx = headers.findIndex(h => normalize(h).includes('DAT') || normalize(h).includes('CHEGADA') || normalize(h).includes('DOCA'));
-      const fIdx = colDataIdx >= 0 ? colDataIdx : 5;
+      // Na aba BaseTIme, a primeira coluna (index 0) parece conter a data curta (Ex: 3/3)
+      const fIdx = 0;
 
       const parseDate = (v: string): Date | null => {
         const s = String(v || '').trim();
         // DD/MM/YYYY
         const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
         if (m) return new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]), 12);
-        // DD/MM
+        // DD/MM (Assume year from today)
         const m3 = s.match(/^(\d{1,2})\/(\d{1,2})$/);
         if (m3) return new Date(today.getFullYear(), parseInt(m3[2]) - 1, parseInt(m3[1]), 12);
         // YYYY-MM-DD
