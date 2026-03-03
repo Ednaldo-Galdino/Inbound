@@ -186,9 +186,6 @@ const App: React.FC = () => {
     const colChave = findH('CHAVE AGENDAMENTO') || findH('CHAVE');
     const colContagem = findH('CONTAGEM') || findH('ID CARGA') || findH('ID');
     const colHoraFim = findH('FIM CONFERENCIA') || findH('FIM DA CONFERENCIA') || findH('HORA FINALIZACAO DA CONFERENCIA') || findH('HORA FIM') || findH('HORA FINALIZACAO') || findH('FIM DA DESCARGA') || findH('FIM');
-    // Adicionais para Tipo de Carga e Paletes
-    const colTipoCarga = findH('TIPO DE CARGA') || findH('TIPO CARGA') || findH('FAMILIA') || findH('FAMÍLIA');
-    const colQtdPaletes = findH('QUANTIDADE') || findH('PALETES') || findH('QTD PALETES') || findH('QTD') || findH('VOLUMES');
     // Mantém colDocaFornec como alias para compatibilidade com o resto do código
     const colDocaFornec = colChegadaDoca;
 
@@ -281,37 +278,6 @@ const App: React.FC = () => {
     const finalizadas = deduplicate(finalizadasRaw, colDocaFornec);
     const noShows = deduplicate(noShowsRaw, colProg);
 
-    // Agrupamento de Aguardando (Programado) por Fornecedor + Tipo de Carga
-    const programadoAgrupadoMap: Record<string, any> = {};
-    programado.forEach((r: any) => {
-      const fornecedor = String(r[colProg] || 'DESCONHECIDO').trim();
-      const tipoCarga = String(r[colTipoCarga] || 'NÃO ESPECIFICADO').trim();
-      const key = `${fornecedor}|${tipoCarga}`;
-
-      let qtdRaw = String(r[colQtdPaletes] || '0').trim().replace(',', '.');
-      let qtd = parseFloat(qtdRaw);
-      if (isNaN(qtd)) qtd = 0;
-
-      if (!programadoAgrupadoMap[key]) {
-        programadoAgrupadoMap[key] = {
-          fornecedor,
-          tipoCarga,
-          totalPaletes: 0,
-          destaques: [] as string[],
-          isDestaque: false
-        };
-      }
-
-      programadoAgrupadoMap[key].totalPaletes += qtd;
-
-      if (isOrdemDestacada(r)) {
-        programadoAgrupadoMap[key].isDestaque = true;
-        const ord = String(r[colOrdem] || r['Ordem'] || '').trim();
-        if (ord) programadoAgrupadoMap[key].destaques.push(ord);
-      }
-    });
-
-    const programadoAgrupado = Object.values(programadoAgrupadoMap);
 
     const finalizadasCIF = finalizadas.filter(r => String(r[colTipo] ?? '').toUpperCase().includes('CIF'));
     const finalizadasFOB = finalizadas.filter(r => String(r[colTipo] ?? '').toUpperCase().includes('FOB'));
@@ -360,7 +326,6 @@ const App: React.FC = () => {
 
     return {
       programado,
-      programadoAgrupado,
       emOperacao,
       finalizadas,
       noShows,
@@ -369,30 +334,14 @@ const App: React.FC = () => {
       historicoUnificado,
       totalDoDia,
       extraCols,
-      cols: { colProg, colDocaFornec, colOrdem, colDocaNum, colStatus, colTempoTotal, colTipo, colData, colHoraFim, colTipoCarga, colQtdPaletes }
+      cols: { colProg, colDocaFornec, colOrdem, colDocaNum, colStatus, colTempoTotal, colTipo, colData, colHoraFim }
     };
   }, [data, selectedDate]);
 
   const displayKPIs = useMemo(() => {
     if (!blocks) return [];
-
-    const aguardandoDetails = blocks.programadoAgrupado.map((item: any) => ({
-      label: `${truncate(item.fornecedor, 12)} (${truncate(item.tipoCarga, 12)})`,
-      value: `${item.totalPaletes} PLTS`
-    }));
-
-    if (aguardandoDetails.length > 0) {
-      aguardandoDetails.push({ label: 'TOTAL CARGAS', value: String(blocks.programado.length), isTotal: true });
-    }
-
     return [
-      {
-        title: 'Tipos de Carga / Qtd Palete',
-        value: String(blocks.programado.length),
-        description: 'Pátio / Trânsito',
-        trend: 'neutral',
-        details: aguardandoDetails.length > 0 ? aguardandoDetails : undefined
-      },
+      { title: 'Aguardando', value: String(blocks.programado.length), description: 'Pátio / Trânsito', trend: 'neutral' },
       { title: 'Em Operação', value: String(blocks.emOperacao.length), description: 'Cargas em Doca', trend: 'neutral' },
       {
         title: 'Finalizados',
@@ -509,7 +458,7 @@ const App: React.FC = () => {
           <div className="p-2 overflow-y-auto flex-grow custom-scrollbar">
             <table className="w-full text-left table-auto">
               <tbody className="text-white">
-                {blocks?.programado.map((row: any, i: number) => {
+                {blocks?.programado.map((row, i) => {
                   const destaque = isOrdemDestacada(row);
                   return (
                     <tr key={i} className={`border-b border-slate-800/40 last:border-0 transition-colors ${destaque ? 'bg-yellow-500/15 border-yellow-500/30' : 'hover:bg-white/5'}`}>
