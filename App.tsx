@@ -122,6 +122,11 @@ const App: React.FC = () => {
     return s.includes('NOSHOW') || s.includes('NO SHOW') || s.includes('FALTOU') || s.includes('AUSENTE');
   };
 
+  const isRecusado = (status: any) => {
+    const s = String(status ?? '').toUpperCase();
+    return s.includes('RECUSADO') || s.includes('RECUSA') || s.includes('DEVOLVIDO') || s.includes('DEVOLUÇÃO') || s.includes('DEVOLUCAO');
+  };
+
   const isInTransit = (status: any) => {
     const s = String(status ?? '').toUpperCase();
     if (s.includes('AGUARDANDO DESCARGA') || s.includes('AGUARDANDO CONFERENCIA') || s.includes('AGUARDANDO CONFERÊNCIA')) return false;
@@ -348,16 +353,18 @@ const App: React.FC = () => {
     const totalDoDia = deduplicate(rawFiltered, colProg).length;
 
     // Aguardando: fornecedor programado, ainda não chegou na doca, não finalizado, e não destacada via Forms
-    const programadoRaw = rawFiltered.filter(r => r[colProg] && !isFinished(r[colStatus]) && !isNoShow(r[colStatus]) && (!r[colDocaFornec] || isInTransit(r[colStatus])) && !isOrdemDestacada(r, activeBastimeOrdens));
+    const programadoRaw = rawFiltered.filter(r => r[colProg] && !isFinished(r[colStatus]) && !isNoShow(r[colStatus]) && !isRecusado(r[colStatus]) && (!r[colDocaFornec] || isInTransit(r[colStatus])) && !isOrdemDestacada(r, activeBastimeOrdens));
     // Em operação: chegada em doca preenchida ou destacada via Forms, ainda não finalizado
-    const emOperacaoRaw = rawFiltered.filter(r => !isFinished(r[colStatus]) && !isNoShow(r[colStatus]) && (isOrdemDestacada(r, activeBastimeOrdens) || (r[colDocaFornec] && !isInTransit(r[colStatus]))));
+    const emOperacaoRaw = rawFiltered.filter(r => !isFinished(r[colStatus]) && !isNoShow(r[colStatus]) && !isRecusado(r[colStatus]) && (isOrdemDestacada(r, activeBastimeOrdens) || (r[colDocaFornec] && !isInTransit(r[colStatus]))));
     const finalizadasRaw = rawFiltered.filter(r => isFinished(r[colStatus]));
     const noShowsRaw = rawFiltered.filter(r => isNoShow(r[colStatus]));
+    const recusadosRaw = rawFiltered.filter(r => isRecusado(r[colStatus]));
 
     const programado = deduplicate(programadoRaw, colProg);
     const emOperacao = deduplicate(emOperacaoRaw, colDocaFornec);
     const finalizadas = deduplicate(finalizadasRaw, colDocaFornec);
     const noShows = deduplicate(noShowsRaw, colProg);
+    const recusados = deduplicate(recusadosRaw, colProg);
 
     // Agrupamento de Aguardando (Programado) APENAS por Tipo de Carga com Paletes Fixos = 28
     const programadoAgrupadoMap: Record<string, any> = {};
@@ -408,7 +415,7 @@ const App: React.FC = () => {
     };
 
     // Agrupamento por fornecedor + ordem (uma linha por ordem)
-    [...finalizadas, ...noShows].forEach(r => {
+    [...finalizadas, ...noShows, ...recusados].forEach(r => {
       const fornecedor = r[colProg] || 'DESCONHECIDO';
       const ordem = String(r[colOrdem] || '-').trim();
       const chave = `${fornecedor}||${ordem}`;
@@ -420,6 +427,7 @@ const App: React.FC = () => {
           tipo: r[colTipo] || '-',
           finalizados: 0,
           noshows: 0,
+          recusados: 0,
           tempos: [] as number[],
           horaFim: '-'
         };
@@ -439,6 +447,9 @@ const App: React.FC = () => {
       } else if (isNoShow(r[colStatus])) {
         agrupamento[chave].noshows++;
         agrupamento[chave].horaFim = 'NOSHOW';
+      } else if (isRecusado(r[colStatus])) {
+        agrupamento[chave].recusados++;
+        agrupamento[chave].horaFim = 'RECUSADO';
       }
     });
 
@@ -455,6 +466,7 @@ const App: React.FC = () => {
       emOperacao,
       finalizadas,
       noShows,
+      recusados,
       finalizadasCIF,
       finalizadasFOB,
       historicoUnificado,
@@ -522,14 +534,15 @@ const App: React.FC = () => {
       { title: 'Em Operação', value: String(blocks.emOperacao.length), description: 'Cargas em Doca', trend: 'neutral' },
       {
         title: 'Finalizados',
-        value: String(blocks.finalizadas.length + blocks.noShows.length),
+        value: String(blocks.finalizadas.length + blocks.noShows.length + blocks.recusados.length),
         description: 'Total Saídas',
         trend: 'neutral',
         details: [
           { label: 'NÃO (CIF)', value: String(blocks.finalizadasCIF.length) },
           { label: 'SIM (FOB)', value: String(blocks.finalizadasFOB.length) },
           { label: 'NOSHOW', value: String(blocks.noShows.length) },
-          { label: 'TOTAL', value: String(blocks.finalizadas.length + blocks.noShows.length), isTotal: true }
+          { label: 'RECUSADO', value: String(blocks.recusados.length) },
+          { label: 'TOTAL', value: String(blocks.finalizadas.length + blocks.noShows.length + blocks.recusados.length), isTotal: true }
         ]
       }
     ] as AIInsight[];
@@ -750,7 +763,25 @@ const App: React.FC = () => {
                     </td>
                     <td className={`py-1 text-center font-black text-slate-400 text-[8px]`}>{item.horaFim}</td>
                     <td className={`py-1 text-center font-black text-emerald-400 ${isTVMode ? 'text-[10px]' : 'text-[9px]'}`}>
-                      {item.tempoMedio}{item.tempoMedio !== '--' && <span className="text-[6px] ml-0.5">MIN</span>}
+                      {item.tempoMedio === '--' ? '--' : (
+                        Number(item.tempoMedio) >= 60 ? (
+                          <>
+                            {Math.floor(Number(item.tempoMedio) / 60)}
+                            <span className="text-[6px] mx-0.5">H</span>
+                            {Number(item.tempoMedio) % 60 > 0 && (
+                              <>
+                                {Number(item.tempoMedio) % 60}
+                                <span className="text-[6px] ml-0.5">M</span>
+                              </>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            {item.tempoMedio}
+                            <span className="text-[6px] ml-0.5">MIN</span>
+                          </>
+                        )
+                      )}
                     </td>
                   </tr>
                 ))}
