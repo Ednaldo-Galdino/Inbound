@@ -6,17 +6,24 @@ export const fetchSheetData = async (sheetKey: string, sheetName: string = "dash
   const [sheetId, gidParam] = sheetKey.split('?');
   const gid = gidParam ? gidParam.replace('gid=', '') : null;
 
-  // Cache-busting: adiciona timestamp para evitar cache do Google (~5min)
-  const cacheBuster = `&_t=${Date.now()}`;
-  const baseUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv`;
-  const url = gid
-    ? `${baseUrl}&gid=${gid}${cacheBuster}`
-    : `${baseUrl}&sheet=${encodeURIComponent(sheetName)}${cacheBuster}`;
+  // Usa /export?format=csv que sempre retorna VALORES calculados (não fórmulas)
+  // O endpoint gviz/tq pode retornar texto de fórmula para certos tipos de fórmulas
+  const cacheBuster = `&t=${Date.now()}`;
+  let url: string;
+
+  if (gid) {
+    url = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}${cacheBuster}`;
+  } else {
+    // Se não temos gid, usa o nome da aba
+    // Nota: o endpoint /export usa 'id' como parâmetro para a aba por nome via gid
+    // Tentamos primeiro com gviz para descobrir o gid, depois exportamos
+    url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}${cacheBuster}`;
+  }
 
   const response = await fetch(url, { cache: 'no-store' });
   if (!response.ok) {
-    // Fallback to default first sheet
-    const fallbackUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv`;
+    // Fallback: tenta pelo nome da aba com gviz
+    const fallbackUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
     const fallbackResponse = await fetch(fallbackUrl);
     if (!fallbackResponse.ok) throw new Error("Falha ao acessar planilha. Verifique se está compartilhada como 'Qualquer pessoa com o link'.");
     const csvText = await fallbackResponse.text();

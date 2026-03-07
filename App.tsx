@@ -36,10 +36,8 @@ const App: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [copied, setCopied] = useState(false);
 
-  // Ordens recebidas via Forms (aba BaseTIme)
-  const [bastimeOrdens, setBastimeOrdens] = useState<Set<string>>(new Set());
-  // IDs das cargas hoje da aba BaseTIme
-  const [bastimeIds, setBastimeIds] = useState<Set<string>>(new Set());
+  // Ordens recebidas via Forms (aba BaseTIme) - estado removido, agora calculado dinamicamente no blocks
+  // IDs das cargas hoje da aba BaseTIme - estado removido, agora calculado dinamicamente no blocks
   // Dados brutos da aba BaseTIme para agregação de paletes
   const [baseTImeData, setBaseTImeData] = useState<{ headers: string[], rows: any[] } | null>(null);
 
@@ -53,8 +51,8 @@ const App: React.FC = () => {
       setData(sheetData);
       setLastUpdated(new Date());
 
-      // Mantém sempre na data de hoje
-      setSelectedDate(new Date());
+      // ATENÇÃO: A data NÃO DEVE SER RESETADA AQUI
+      // Isso permite que o usuário veja arquivos de dias passados
     } catch (err: any) {
       setError("Erro ao carregar dados. Verifique se a planilha está pública.");
     } finally {
@@ -77,47 +75,8 @@ const App: React.FC = () => {
       const headers = parseLine(lines[0]);
       let rows = lines.slice(1).map(line => parseLine(line));
 
-      // Filtra apenas por hoje
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      // Na aba BaseTIme, a primeira coluna (index 0) parece conter a data curta (Ex: 3/3)
-      const fIdx = 0;
-
-      const parseDate = (v: string): Date | null => {
-        const s = String(v || '').trim();
-        // DD/MM/YYYY
-        const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-        if (m) return new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]), 12);
-        // DD/MM (Assume year from today)
-        const m3 = s.match(/^(\d{1,2})\/(\d{1,2})$/);
-        if (m3) return new Date(today.getFullYear(), parseInt(m3[2]) - 1, parseInt(m3[1]), 12);
-        // YYYY-MM-DD
-        const m2 = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
-        if (m2) return new Date(parseInt(m2[1]), parseInt(m2[2]) - 1, parseInt(m2[3]), 12);
-        return null;
-      };
-
-      rows = rows.filter(r => {
-        const dt = parseDate(r[fIdx]);
-        if (!dt) return false;
-        return dt.getDate() === today.getDate() && dt.getMonth() === today.getMonth() && dt.getFullYear() === today.getFullYear();
-      });
-
-      const ordens = new Set<string>();
-      const ids = new Set<string>();
-      rows.forEach(parts => {
-        // Ordem (coluna C na planilha = index 2)
-        const ordem = parts[2]?.trim();
-        if (ordem) ordens.add(ordem.toUpperCase());
-
-        // ID da carga (coluna E na planilha = index 4)
-        const idCarga = parts[4]?.trim();
-        if (idCarga) ids.add(idCarga);
-      });
-
-      console.log(`BaseTIme carregada (Hoje): ${rows.length} linhas found. IDs: ${ids.size}`);
-      setBastimeOrdens(ordens);
-      setBastimeIds(ids);
+      // Na aba BaseTIme guardamos TODAS as linhas, o filtro por selectedDate acontece no 'blocks'
+      console.log(`BaseTIme carregada: ${rows.length} linhas found.`);
       setBaseTImeData({ headers, rows });
     } catch (err) {
       console.error('Erro ao carregar BaseTIme:', err);
@@ -141,10 +100,16 @@ const App: React.FC = () => {
 
 
 
-  const isOrdemDestacada = (row: any) => {
-    if (bastimeOrdens.size === 0) return false;
-    const ordem = String(row['ORDEM'] || row['Ordem'] || '').trim().toUpperCase();
-    return bastimeOrdens.has(ordem);
+  // Verifica se a ordem está destacada no BaseTIme para a data selecionada
+  const isOrdemDestacada = (row: any, activeOrdens?: Set<string>) => {
+    if (!row) return false;
+    // Tenta encontrar a coluna 'ORDEM' ou a original 'Ordem'
+    const o = row['ORDEM'] || row['Ordem'];
+    if (!o) return false;
+    // Se passarem um set de ordens ativo, usa ele (caso do uso dentro do blocks)
+    // Se não, não temos como saber fora do blocks, a função não deve ser chamada sem parâmetro no ideal.
+    if (activeOrdens) return activeOrdens.has(String(o).toUpperCase());
+    return false;
   };
 
   const isFinished = (status: any) => {
@@ -213,6 +178,19 @@ const App: React.FC = () => {
       const tM = selectedDate.getMonth() + 1;
       const tY = selectedDate.getFullYear();
 
+      // Check for Excel serial date (e.g., 45358)
+      if (valStr.match(/^\d{5}$/)) {
+        const serial = parseInt(valStr);
+        if (serial > 40000 && serial < 50000) {
+          const date = new Date((serial - 25569) * 86400 * 1000);
+          // Usa Math.round e UTC para garantir que timezone não mude o dia
+          const localY = date.getUTCFullYear();
+          const localM = date.getUTCMonth() + 1;
+          const localD = date.getUTCDate();
+          return localD === tD && localM === tM && localY === tY;
+        }
+      }
+
       // Divide por /, -, espaço ou T (formato ISO)
       const parts = valStr.split(/[\/\-\sT]/).filter(p => p.length > 0);
 
@@ -247,14 +225,96 @@ const App: React.FC = () => {
       return d === tD && m === tM && y === tY;
     };
 
+    // ----- NOVA LÓGICA: Filtrar BaseTIme por data DENTRO DO BLOCKS -----
+    const activeBastimeIds = new Set<string>();
+    const activeBastimeOrdens = new Set<string>();
+
+    if (baseTImeData) {
+      const fIdx = 0; // Coluna de data na BaseTIme
+      baseTImeData.rows.forEach(parts => {
+        // Usa a mesma função isMatchingDate para consistência!
+        if (isMatchingDate(parts[fIdx])) {
+          const ordem = parts[2]?.trim();
+          if (ordem) activeBastimeOrdens.add(ordem.toUpperCase());
+
+          const idCarga = parts[4]?.trim();
+          if (idCarga) activeBastimeIds.add(idCarga);
+        }
+      });
+    }
+
     // Filtragem por data selecionada usando a coluna detectada
     let rawFiltered = colData ? data.rows.filter(r => isMatchingDate(r[colData])) : data.rows;
+    // Snapshot antes da sincronização BaseTIme — usado para calcular paletes
+    // Isso garante que os paletes nunca zeram por falha no sync
+    const dateFilteredRows = rawFiltered;
 
-    // Sincronização estrita: mostra APENAS o que está na aba BaseTIme de hoje
-    if (baseTImeData) {
+    // =================================================================
+    // PALETES POR TIPO DE ARMAZENAGEM - BUSCA PANORÂMICA (Resiliente a colunas)
+    // O usuário relatou que a tabela "Tipo da Carga" -> "Posição futura"
+    // pode estar em índices diferentes do esperado (V e W). Varremos todas as células.
+    // =================================================================
+    const paletesDodiaCalc: Record<string, number> = {};
+
+    // Palavras-chave para mapear as categorias corretamente
+    const mapCategory = (text: string) => {
+      const n = normalize(text);
+      if (n.includes('SECA')) return 'MERCEARIA SECA';
+      if (n.includes('BEBIDA')) return 'BEBIDAS';
+      if (n.includes('LIMPEZA') || n.includes('LAVANDERIA')) return 'LIMPEZA E LAVANDERIA';
+      if (n.includes('HIGIENE') || n.includes('SAUDE') || n.includes('BELEZA')) return 'HIGIENE, SAUDE E BELEZA';
+      if (n.includes('AEROSOL') || n.includes('AEROSOIS')) return 'AEROSOL';
+      return '';
+    };
+
+    console.log("=== INICIANDO PARSER MULTI-COLUNA DE PALETES===");
+
+    data.rows.forEach((r: any) => {
+      // Vamos transformar a linha inteira num array de valores pra facilitar a busca em pares (Coluna N -> Coluna N+1)
+      // Ignoramos a chave do objeto e focamos nos valores ordenados
+      const rowValues = h.map(header => String(r[header] || '').trim());
+
+      // SÓ PROCESSA A LINHA SE ELA TIVER A DATA ESCOLHIDA EM ALGUM LUGAR DELA
+      const rowHasDate = rowValues.some(v => isMatchingDate(v));
+      if (!rowHasDate) return; // Pula essa linha se ela for de outro dia
+
+      for (let i = 0; i < rowValues.length; i++) {
+        const val = rowValues[i];
+        if (!val) continue;
+
+        // Se achou um texto que bate com nossa categoria
+        const category = mapCategory(val);
+
+        if (category) {
+          // A quantidade geralmente está na célula imediatamente à direita (i + 1)
+          // Ou na mesma célula separada por traço
+          let targetQuantityStr = '';
+
+          if (val.includes('-') || val.includes('|')) {
+            targetQuantityStr = val; // Tenta extrair da própria célula
+          } else if (i + 1 < rowValues.length) {
+            targetQuantityStr = rowValues[i + 1]; // Puxa do vizinho da direita
+          }
+
+          // Extrai o número
+          const nums = targetQuantityStr.match(/\d+(?:[.,]\d+)?/g);
+          if (nums) {
+            const n = parseFloat(nums[nums.length - 1].replace(',', '.'));
+            if (!isNaN(n)) {
+              paletesDodiaCalc[category] = (paletesDodiaCalc[category] || 0) + n;
+            }
+          }
+        }
+      }
+    });
+
+    console.log('Paletes Dash Result final:', paletesDodiaCalc);
+
+    // Sincronização estrita: mostra APENAS o que está na aba BaseTIme do dia selecionado
+    if (baseTImeData && activeBastimeIds.size > 0) {
       rawFiltered = rawFiltered.filter(r => {
         const id = String(r[colContagem] || '').trim();
-        return bastimeIds.has(id);
+        return activeBastimeIds.has(id);
       });
     }
 
@@ -288,9 +348,9 @@ const App: React.FC = () => {
     const totalDoDia = deduplicate(rawFiltered, colProg).length;
 
     // Aguardando: fornecedor programado, ainda não chegou na doca, não finalizado, e não destacada via Forms
-    const programadoRaw = rawFiltered.filter(r => r[colProg] && !isFinished(r[colStatus]) && !isNoShow(r[colStatus]) && (!r[colDocaFornec] || isInTransit(r[colStatus])) && !isOrdemDestacada(r));
+    const programadoRaw = rawFiltered.filter(r => r[colProg] && !isFinished(r[colStatus]) && !isNoShow(r[colStatus]) && (!r[colDocaFornec] || isInTransit(r[colStatus])) && !isOrdemDestacada(r, activeBastimeOrdens));
     // Em operação: chegada em doca preenchida ou destacada via Forms, ainda não finalizado
-    const emOperacaoRaw = rawFiltered.filter(r => !isFinished(r[colStatus]) && !isNoShow(r[colStatus]) && (isOrdemDestacada(r) || (r[colDocaFornec] && !isInTransit(r[colStatus]))));
+    const emOperacaoRaw = rawFiltered.filter(r => !isFinished(r[colStatus]) && !isNoShow(r[colStatus]) && (isOrdemDestacada(r, activeBastimeOrdens) || (r[colDocaFornec] && !isInTransit(r[colStatus]))));
     const finalizadasRaw = rawFiltered.filter(r => isFinished(r[colStatus]));
     const noShowsRaw = rawFiltered.filter(r => isNoShow(r[colStatus]));
 
@@ -329,12 +389,34 @@ const App: React.FC = () => {
     const historicoUnificado: any[] = [];
     const agrupamento: Record<string, any> = {};
 
-    // Agrupamento usa sempre o nome do fornecedor (colProg)
+    // Função para calcular diferença em minutos entre dois horários "HH:MM:SS" ou "DD/MM/YYYY HH:MM:SS"
+    const calcMinutos = (chegada: string, fim: string): number | null => {
+      if (!chegada || !fim) return null;
+      const extrairHora = (s: string) => {
+        const partes = s.trim().split(/[\sT]/);
+        const hora = partes.length > 1 ? partes[partes.length - 1] : partes[0];
+        const [h, m, seg] = hora.split(':').map(Number);
+        if (isNaN(h) || isNaN(m)) return null;
+        return h * 60 + m + (seg || 0) / 60;
+      };
+      const tChegada = extrairHora(chegada);
+      const tFim = extrairHora(fim);
+      if (tChegada === null || tFim === null) return null;
+      let diff = tFim - tChegada;
+      if (diff < 0) diff += 1440; // atravessou meia-noite
+      return diff > 0 ? diff : null;
+    };
+
+    // Agrupamento por fornecedor + ordem (uma linha por ordem)
     [...finalizadas, ...noShows].forEach(r => {
       const fornecedor = r[colProg] || 'DESCONHECIDO';
-      if (!agrupamento[fornecedor]) {
-        agrupamento[fornecedor] = {
+      const ordem = String(r[colOrdem] || '-').trim();
+      const chave = `${fornecedor}||${ordem}`;
+
+      if (!agrupamento[chave]) {
+        agrupamento[chave] = {
           nome: fornecedor,
+          ordem,
           tipo: r[colTipo] || '-',
           finalizados: 0,
           noshows: 0,
@@ -344,27 +426,26 @@ const App: React.FC = () => {
       }
 
       if (isFinished(r[colStatus])) {
-        agrupamento[fornecedor].finalizados++;
-        const t = parseFloat(r[colTempoTotal]);
-        if (!isNaN(t)) agrupamento[fornecedor].tempos.push(t);
-        if (colHoraFim && r[colHoraFim]) {
-          const val = String(r[colHoraFim]);
-          // If it's a full ISO string or has a space, try to extract just the time
-          if (val.includes(' ') || val.includes('T')) {
-            const parts = val.split(/[ T]/);
-            agrupamento[fornecedor].horaFim = parts[parts.length - 1].substring(0, 5);
-          } else {
-            agrupamento[fornecedor].horaFim = val.substring(0, 5);
-          }
+        agrupamento[chave].finalizados++;
+        // Tempo: chegada em doca → fim da conferência
+        const chegada = String(r[colDocaFornec] || '').trim();
+        const fim = String(r[colHoraFim] || '').trim();
+        const mins = calcMinutos(chegada, fim);
+        if (mins !== null) agrupamento[chave].tempos.push(mins);
+        if (fim) {
+          const partes = fim.split(/[\sT]/);
+          agrupamento[chave].horaFim = partes[partes.length - 1].substring(0, 5);
         }
       } else if (isNoShow(r[colStatus])) {
-        agrupamento[fornecedor].noshows++;
-        agrupamento[fornecedor].horaFim = 'NOSHOW';
+        agrupamento[chave].noshows++;
+        agrupamento[chave].horaFim = 'NOSHOW';
       }
     });
 
     Object.values(agrupamento).forEach((item: any) => {
-      const avg = item.tempos.length > 0 ? (item.tempos.reduce((a: number, b: number) => a + b, 0) / item.tempos.length).toFixed(0) : '--';
+      const avg = item.tempos.length > 0
+        ? Math.round(item.tempos.reduce((a: number, b: number) => a + b, 0) / item.tempos.length)
+        : '--';
       historicoUnificado.push({ ...item, tempoMedio: avg });
     });
 
@@ -379,39 +460,14 @@ const App: React.FC = () => {
       historicoUnificado,
       totalDoDia,
       extraCols,
+      paletesDodia: paletesDodiaCalc,
+      bastimeOrdens: activeBastimeOrdens, // exporta as ordens ativas para a renderização
       cols: { colProg, colDocaFornec, colOrdem, colDocaNum, colStatus, colTempoTotal, colTipo, colData, colHoraFim, colTipoCarga }
     };
-  }, [data, selectedDate]);
+  }, [data, selectedDate, baseTImeData]);
 
-  // Soma paletes por Tipo da Carga - apenas para as linhas pré-filtradas de HOJE
-  const paletesDodia = useMemo(() => {
-    if (!baseTImeData) return {};
-    const { headers, rows } = baseTImeData;
-
-    const colTipoIdx = headers.findIndex(h => normalize(h).includes('ARMAZEN'));
-    const colPaleteIdx = headers.findIndex(h => normalize(h).includes('PALET'));
-
-    const tIdx = colTipoIdx >= 0 ? colTipoIdx : 19;
-    const uIdx = colPaleteIdx >= 0 ? colPaleteIdx : 20;
-
-    const totais: Record<string, number> = {};
-
-    rows.forEach(r => {
-      let tipo = String(r[tIdx] || '').trim().toUpperCase();
-      if (!tipo) tipo = String(r[tIdx + 1] || r[tIdx - 1] || '').trim().toUpperCase();
-
-      const qtdValue = String(r[uIdx] || '0').replace(',', '.');
-      const qtd = parseFloat(qtdValue) || 0;
-
-      if (qtd > 0 && tipo) {
-        const key = normalize(tipo);
-        totais[key] = (totais[key] || 0) + qtd;
-      }
-    });
-
-    console.log("Paletes BaseTIme Totais (HOJE):", totais);
-    return totais;
-  }, [baseTImeData]);
+  // Paletes lidos das colunas V e W da aba Dash (calculado no blocks useMemo)
+  const paletesDodia = useMemo(() => blocks?.paletesDodia || {}, [blocks]);
 
   const displayKPIs = useMemo(() => {
     if (!blocks) return [];
@@ -498,6 +554,12 @@ const App: React.FC = () => {
     return new Intl.DateTimeFormat('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' }).format(date).toUpperCase().replace('.', '');
   };
 
+  const shiftDate = (days: number) => {
+    const newDate = new Date(selectedDate);
+    newDate.setDate(selectedDate.getDate() + days);
+    setSelectedDate(newDate);
+  };
+
 
   return (
     <div className={`${isTVMode ? 'h-screen overflow-hidden p-2' : 'min-h-screen p-4'} bg-slate-950 flex flex-col transition-all duration-500`}>
@@ -506,13 +568,29 @@ const App: React.FC = () => {
         <div className="flex-1 flex flex-col">
           {/* Seletor de Data */}
           <div className="flex items-center gap-2">
-            <div className="flex items-center gap-2 bg-slate-900/80 p-1 rounded-xl border border-slate-800 shadow-lg">
-              <div className="flex items-center gap-2 px-3 py-1">
+            <div className="flex items-center gap-1 bg-slate-900/80 p-1 rounded-xl border border-slate-800 shadow-lg">
+              <button
+                onClick={() => shiftDate(-1)}
+                className="p-1 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"
+                title="Dia anterior"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+              </button>
+
+              <div className="flex items-center gap-2 px-2 py-1 min-w-[120px] justify-center cursor-pointer" onClick={() => setSelectedDate(new Date())} title="Voltar para hoje">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
-                <span className={`font-black text-white uppercase tracking-wide ${isTVMode ? 'text-sm' : 'text-xs'}`}>
+                <span className={`font-black text-white uppercase tracking-wide whitespace-nowrap ${isTVMode ? 'text-sm' : 'text-xs'}`}>
                   {formatDateDisplay(selectedDate)}
                 </span>
               </div>
+
+              <button
+                onClick={() => shiftDate(1)}
+                className="p-1 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"
+                title="Próximo dia"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </button>
             </div>
           </div>
 
@@ -567,7 +645,7 @@ const App: React.FC = () => {
             <table className="w-full text-left table-auto">
               <tbody className="text-white">
                 {blocks?.programado.map((row, i) => {
-                  const destaque = isOrdemDestacada(row);
+                  const destaque = isOrdemDestacada(row, blocks?.bastimeOrdens);
                   return (
                     <tr key={i} className={`border-b border-slate-800/40 last:border-0 transition-colors ${destaque ? 'bg-yellow-500/15 border-yellow-500/30' : 'hover:bg-white/5'}`}>
                       <td className="py-1 px-3">
@@ -604,7 +682,7 @@ const App: React.FC = () => {
               </thead>
               <tbody className="text-white">
                 {blocks?.emOperacao.map((row, i) => {
-                  const destaque = isOrdemDestacada(row);
+                  const destaque = isOrdemDestacada(row, blocks?.bastimeOrdens);
                   return (
                     <tr key={i} className={`border-b border-slate-800/50 last:border-0 ${destaque ? 'bg-yellow-500/15 border-yellow-500/30' : ''}`}>
                       <td className="py-1.5 pl-2">
@@ -649,10 +727,10 @@ const App: React.FC = () => {
             <table className="w-full text-left table-fixed">
               <thead className="text-slate-500 text-[8px] uppercase border-b border-slate-800 font-black">
                 <tr>
-                  <th className="pb-1 w-[40%]">Fornecedor</th>
-                  <th className="pb-1 text-center w-[15%]">Tipo</th>
-                  <th className="pb-1 text-center w-[15%]">Saídas</th>
-                  <th className="pb-1 text-center w-[15%]">Hora</th>
+                  <th className="pb-1 w-[38%]">Fornecedor</th>
+                  <th className="pb-1 text-center w-[13%]">Tipo</th>
+                  <th className="pb-1 text-center w-[13%]">Saídas</th>
+                  <th className="pb-1 text-center w-[13%]">Hora</th>
                   <th className="pb-1 text-center">Médio</th>
                 </tr>
               </thead>
@@ -661,7 +739,8 @@ const App: React.FC = () => {
                   <tr key={i} className="border-b border-slate-800/30 last:border-0">
                     <td className={`py-1 font-bold truncate ${isTVMode ? 'text-[10px]' : 'text-[9px]'}`}>
                       <div className="flex flex-col">
-                        <span className="truncate">{truncate(item.nome, 25)}</span>
+                        <span className="truncate">{truncate(item.nome, 22)}</span>
+                        <span className="text-[7px] text-slate-500 font-black tracking-tighter">OR: {item.ordem}</span>
                         {item.noshows > 0 && <span className="text-[7px] text-rose-500 font-black tracking-tighter">NOSHOW: {item.noshows}</span>}
                       </div>
                     </td>
